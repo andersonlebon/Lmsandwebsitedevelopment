@@ -1,0 +1,501 @@
+<!--
+  ============================================================
+  BTC (Brotherly Training Center) — Templates Email Supabase
+  ============================================================
+  
+  COMMENT UTILISER :
+  1. Allez sur votre tableau de bord Supabase
+  2. Naviguez vers : Authentication → Email Templates
+  3. Pour chaque type de template ci-dessous, copiez le HTML
+     et collez-le dans l'editeur de template correspondant.
+  4. Mettez a jour le champ "Subject" comme indique.
+  
+  IMPORTANT — LOGO BTC :
+  Remplacez TOUTES les occurrences de :
+    https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png
+  par l'URL publique de votre logo BTC heberge sur Supabase Storage
+  ou tout autre CDN public.
+  
+  Pour heberger le logo sur Supabase Storage :
+  1. Allez sur Supabase Dashboard → Storage
+  2. Creez un bucket public "assets"
+  3. Uploadez le fichier btc-logo.png
+  4. Copiez l'URL publique et remplacez ci-dessous
+  
+  VARIABLES DU TEMPLATE (remplies automatiquement par Supabase) :
+  {{ .ConfirmationURL }}  — Lien de confirmation complet
+  {{ .Token }}            — Code OTP a 6 chiffres
+  {{ .TokenHash }}        — Token hashe
+  {{ .SiteURL }}          — URL de votre site
+  {{ .Email }}            — Adresse email de l'utilisateur
+  
+  ============================================================
+-->
+
+
+<!-- ========================================================
+     TEMPLATE 1 : CONFIRMATION D'INSCRIPTION
+     Objet : BTC Goma — Confirmez votre adresse email
+     ======================================================== -->
+
+<div style="background-color: #0f172a; padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto;">
+
+    <!-- En-tete -->
+    <div style="background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); border-radius: 16px 16px 0 0; padding: 28px 32px 22px; text-align: center;">
+      <img src="https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png"
+           alt="BTC Logo" width="56" height="56"
+           style="border-radius: 14px; margin-bottom: 14px; background: rgba(255,255,255,0.15); padding: 4px;" />
+      <h1 style="color: white; font-size: 20px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.3px;">Brotherly Training Center</h1>
+      <p style="color: rgba(255,255,255,0.65); font-size: 12px; margin: 0;">Goma, Nord-Kivu, RDC</p>
+    </div>
+
+    <!-- Corps -->
+    <div style="background: #1e293b; padding: 32px; border-radius: 0 0 16px 16px; border: 1px solid #334155; border-top: none;">
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 52px; height: 52px; background: rgba(22,163,74,0.15); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; border: 1px solid rgba(22,163,74,0.25);">
+          <span style="font-size: 26px;">&#9993;</span>
+        </div>
+        <h2 style="color: #f1f5f9; font-size: 20px; font-weight: 700; margin: 0;">Confirmez votre email</h2>
+      </div>
+
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 6px;">
+        Bonjour,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+        Merci de vous &ecirc;tre inscrit(e) au <strong style="color: #f1f5f9;">Brotherly Training Center</strong>. Pour activer votre compte et acc&eacute;der &agrave; la plateforme, veuillez confirmer votre adresse email en cliquant sur le bouton ci-dessous.
+      </p>
+
+      <!-- Bouton CTA -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display: inline-block; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; padding: 14px 44px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
+          Confirmer mon email
+        </a>
+      </div>
+
+      <!-- Code OTP -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px;">
+          Code de v&eacute;rification
+        </p>
+        <p style="color: #22c55e; font-size: 34px; font-weight: 800; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+          {{ .Token }}
+        </p>
+      </div>
+
+      <!-- Avertissement -->
+      <div style="background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px;">
+        <p style="color: #fbbf24; font-size: 12px; margin: 0; line-height: 1.5;">
+          Si vous n'avez pas cr&eacute;&eacute; de compte sur BTC, vous pouvez ignorer cet email en toute s&eacute;curit&eacute;.
+        </p>
+      </div>
+
+      <p style="color: #475569; font-size: 11px; line-height: 1.5; margin: 0;">
+        Ce lien expirera dans 24 heures.
+      </p>
+    </div>
+
+    <!-- Pied de page -->
+    <div style="text-align: center; padding: 20px 0 4px;">
+      <p style="color: #475569; font-size: 11px; margin: 0 0 3px;">
+        &copy; 2026 Brotherly Training Center (BTC)
+      </p>
+      <p style="color: #334155; font-size: 10px; margin: 0;">
+        &Eacute;cole de Langues et M&eacute;tiers &mdash; Goma, Nord-Kivu, RDC
+      </p>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ========================================================
+     TEMPLATE 2 : R&Eacute;INITIALISATION DU MOT DE PASSE
+     Objet : BTC Goma — R&eacute;initialisez votre mot de passe
+     ======================================================== -->
+
+<div style="background-color: #0f172a; padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto;">
+
+    <!-- En-tete -->
+    <div style="background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); border-radius: 16px 16px 0 0; padding: 28px 32px 22px; text-align: center;">
+      <img src="https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png"
+           alt="BTC Logo" width="56" height="56"
+           style="border-radius: 14px; margin-bottom: 14px; background: rgba(255,255,255,0.15); padding: 4px;" />
+      <h1 style="color: white; font-size: 20px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.3px;">Brotherly Training Center</h1>
+      <p style="color: rgba(255,255,255,0.65); font-size: 12px; margin: 0;">Goma, Nord-Kivu, RDC</p>
+    </div>
+
+    <!-- Corps -->
+    <div style="background: #1e293b; padding: 32px; border-radius: 0 0 16px 16px; border: 1px solid #334155; border-top: none;">
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 52px; height: 52px; background: rgba(245,158,11,0.12); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; border: 1px solid rgba(245,158,11,0.25);">
+          <span style="font-size: 26px;">&#128274;</span>
+        </div>
+        <h2 style="color: #f1f5f9; font-size: 20px; font-weight: 700; margin: 0;">R&eacute;initialisation du mot de passe</h2>
+      </div>
+
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 6px;">
+        Bonjour,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+        Nous avons re&ccedil;u une demande de r&eacute;initialisation de votre mot de passe pour votre compte <strong style="color: #f1f5f9;">BTC</strong>. Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe.
+      </p>
+
+      <!-- Bouton CTA -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display: inline-block; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; text-decoration: none; padding: 14px 44px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(245,158,11,0.3); letter-spacing: 0.3px;">
+          R&eacute;initialiser le mot de passe
+        </a>
+      </div>
+
+      <!-- Code OTP -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px;">
+          Code de r&eacute;initialisation
+        </p>
+        <p style="color: #fbbf24; font-size: 34px; font-weight: 800; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+          {{ .Token }}
+        </p>
+      </div>
+
+      <!-- Alerte Securite -->
+      <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px;">
+        <p style="color: #f87171; font-size: 12px; margin: 0; line-height: 1.5;">
+          <strong>S&eacute;curit&eacute; :</strong> Si vous n'avez pas demand&eacute; cette r&eacute;initialisation, ignorez cet email. Votre mot de passe ne sera pas modifi&eacute;.
+        </p>
+      </div>
+
+      <p style="color: #475569; font-size: 11px; line-height: 1.5; margin: 0;">
+        Ce lien expirera dans 1 heure.
+      </p>
+    </div>
+
+    <!-- Pied de page -->
+    <div style="text-align: center; padding: 20px 0 4px;">
+      <p style="color: #475569; font-size: 11px; margin: 0 0 3px;">
+        &copy; 2026 Brotherly Training Center (BTC)
+      </p>
+      <p style="color: #334155; font-size: 10px; margin: 0;">
+        &Eacute;cole de Langues et M&eacute;tiers &mdash; Goma, Nord-Kivu, RDC
+      </p>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ========================================================
+     TEMPLATE 3 : LIEN MAGIQUE (Magic Link)
+     Objet : BTC Goma — Votre lien de connexion
+     ======================================================== -->
+
+<div style="background-color: #0f172a; padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto;">
+
+    <!-- En-tete -->
+    <div style="background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); border-radius: 16px 16px 0 0; padding: 28px 32px 22px; text-align: center;">
+      <img src="https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png"
+           alt="BTC Logo" width="56" height="56"
+           style="border-radius: 14px; margin-bottom: 14px; background: rgba(255,255,255,0.15); padding: 4px;" />
+      <h1 style="color: white; font-size: 20px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.3px;">Brotherly Training Center</h1>
+      <p style="color: rgba(255,255,255,0.65); font-size: 12px; margin: 0;">Goma, Nord-Kivu, RDC</p>
+    </div>
+
+    <!-- Corps -->
+    <div style="background: #1e293b; padding: 32px; border-radius: 0 0 16px 16px; border: 1px solid #334155; border-top: none;">
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 52px; height: 52px; background: rgba(37,99,235,0.12); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; border: 1px solid rgba(37,99,235,0.25);">
+          <span style="font-size: 26px;">&#128279;</span>
+        </div>
+        <h2 style="color: #f1f5f9; font-size: 20px; font-weight: 700; margin: 0;">Votre lien de connexion</h2>
+      </div>
+
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 6px;">
+        Bonjour,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+        Cliquez sur le bouton ci-dessous pour vous connecter &agrave; votre compte <strong style="color: #f1f5f9;">BTC</strong>. Aucun mot de passe n'est requis.
+      </p>
+
+      <!-- Bouton CTA -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display: inline-block; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; text-decoration: none; padding: 14px 44px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(37,99,235,0.35); letter-spacing: 0.3px;">
+          Se connecter &agrave; BTC
+        </a>
+      </div>
+
+      <!-- Code OTP -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px;">
+          Code de connexion
+        </p>
+        <p style="color: #60a5fa; font-size: 34px; font-weight: 800; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+          {{ .Token }}
+        </p>
+      </div>
+
+      <div style="background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px;">
+        <p style="color: #fbbf24; font-size: 12px; margin: 0; line-height: 1.5;">
+          Si vous n'avez pas demand&eacute; ce lien de connexion, vous pouvez ignorer cet email en toute s&eacute;curit&eacute;.
+        </p>
+      </div>
+
+      <p style="color: #475569; font-size: 11px; line-height: 1.5; margin: 0;">
+        Ce lien expirera dans 1 heure.
+      </p>
+    </div>
+
+    <!-- Pied de page -->
+    <div style="text-align: center; padding: 20px 0 4px;">
+      <p style="color: #475569; font-size: 11px; margin: 0 0 3px;">
+        &copy; 2026 Brotherly Training Center (BTC)
+      </p>
+      <p style="color: #334155; font-size: 10px; margin: 0;">
+        &Eacute;cole de Langues et M&eacute;tiers &mdash; Goma, Nord-Kivu, RDC
+      </p>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ========================================================
+     TEMPLATE 4 : CHANGEMENT D'ADRESSE EMAIL
+     Objet : BTC Goma — Confirmez le changement d'email
+     ======================================================== -->
+
+<div style="background-color: #0f172a; padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto;">
+
+    <!-- En-tete -->
+    <div style="background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); border-radius: 16px 16px 0 0; padding: 28px 32px 22px; text-align: center;">
+      <img src="https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png"
+           alt="BTC Logo" width="56" height="56"
+           style="border-radius: 14px; margin-bottom: 14px; background: rgba(255,255,255,0.15); padding: 4px;" />
+      <h1 style="color: white; font-size: 20px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.3px;">Brotherly Training Center</h1>
+      <p style="color: rgba(255,255,255,0.65); font-size: 12px; margin: 0;">Goma, Nord-Kivu, RDC</p>
+    </div>
+
+    <!-- Corps -->
+    <div style="background: #1e293b; padding: 32px; border-radius: 0 0 16px 16px; border: 1px solid #334155; border-top: none;">
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 52px; height: 52px; background: rgba(124,58,237,0.12); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; border: 1px solid rgba(124,58,237,0.25);">
+          <span style="font-size: 26px;">&#9999;</span>
+        </div>
+        <h2 style="color: #f1f5f9; font-size: 20px; font-weight: 700; margin: 0;">Changement d'adresse email</h2>
+      </div>
+
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 6px;">
+        Bonjour,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+        Vous avez demand&eacute; &agrave; modifier votre adresse email pour votre compte <strong style="color: #f1f5f9;">BTC</strong>. Cliquez sur le bouton ci-dessous pour confirmer ce changement.
+      </p>
+
+      <!-- Bouton CTA -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display: inline-block; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; text-decoration: none; padding: 14px 44px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(124,58,237,0.35); letter-spacing: 0.3px;">
+          Confirmer le changement
+        </a>
+      </div>
+
+      <!-- Code OTP -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px;">
+          Code de v&eacute;rification
+        </p>
+        <p style="color: #a78bfa; font-size: 34px; font-weight: 800; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+          {{ .Token }}
+        </p>
+      </div>
+
+      <!-- Alerte Securite -->
+      <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px;">
+        <p style="color: #f87171; font-size: 12px; margin: 0; line-height: 1.5;">
+          <strong>S&eacute;curit&eacute; :</strong> Si vous n'avez pas demand&eacute; ce changement, veuillez contacter imm&eacute;diatement l'administration de BTC. Votre email ne sera pas modifi&eacute;.
+        </p>
+      </div>
+
+      <p style="color: #475569; font-size: 11px; line-height: 1.5; margin: 0;">
+        Ce lien expirera dans 24 heures.
+      </p>
+    </div>
+
+    <!-- Pied de page -->
+    <div style="text-align: center; padding: 20px 0 4px;">
+      <p style="color: #475569; font-size: 11px; margin: 0 0 3px;">
+        &copy; 2026 Brotherly Training Center (BTC)
+      </p>
+      <p style="color: #334155; font-size: 10px; margin: 0;">
+        &Eacute;cole de Langues et M&eacute;tiers &mdash; Goma, Nord-Kivu, RDC
+      </p>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ========================================================
+     TEMPLATE 5 : INVITATION UTILISATEUR
+     Objet : BTC Goma — Vous &ecirc;tes invit&eacute;(e)
+     ======================================================== -->
+
+<div style="background-color: #0f172a; padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto;">
+
+    <!-- En-tete -->
+    <div style="background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); border-radius: 16px 16px 0 0; padding: 28px 32px 22px; text-align: center;">
+      <img src="https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png"
+           alt="BTC Logo" width="56" height="56"
+           style="border-radius: 14px; margin-bottom: 14px; background: rgba(255,255,255,0.15); padding: 4px;" />
+      <h1 style="color: white; font-size: 20px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.3px;">Brotherly Training Center</h1>
+      <p style="color: rgba(255,255,255,0.65); font-size: 12px; margin: 0;">Goma, Nord-Kivu, RDC</p>
+    </div>
+
+    <!-- Corps -->
+    <div style="background: #1e293b; padding: 32px; border-radius: 0 0 16px 16px; border: 1px solid #334155; border-top: none;">
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 52px; height: 52px; background: rgba(22,163,74,0.15); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; border: 1px solid rgba(22,163,74,0.25);">
+          <span style="font-size: 26px;">&#127891;</span>
+        </div>
+        <h2 style="color: #f1f5f9; font-size: 20px; font-weight: 700; margin: 0;">Bienvenue &agrave; BTC !</h2>
+      </div>
+
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 6px;">
+        Bonjour,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+        Vous avez &eacute;t&eacute; invit&eacute;(e) &agrave; rejoindre la plateforme du <strong style="color: #f1f5f9;">Brotherly Training Center</strong>. Cliquez sur le bouton ci-dessous pour accepter l'invitation et configurer votre compte.
+      </p>
+
+      <!-- Bouton CTA -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display: inline-block; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; padding: 14px 44px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
+          Accepter l'invitation
+        </a>
+      </div>
+
+      <!-- Code OTP -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px;">
+          Code d'invitation
+        </p>
+        <p style="color: #22c55e; font-size: 34px; font-weight: 800; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+          {{ .Token }}
+        </p>
+      </div>
+
+      <!-- Departements -->
+      <div style="background: rgba(22,163,74,0.06); border: 1px solid rgba(22,163,74,0.15); border-radius: 10px; padding: 14px; margin-bottom: 20px;">
+        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+          Nos 4 d&eacute;partements
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50; margin-right: 8px; vertical-align: middle;"></span>
+              <span style="color: #cbd5e1; font-size: 13px; vertical-align: middle;">Anglais</span>
+            </td>
+            <td style="padding: 4px 0;">
+              <span style="display: inline-block; width: 8px; height: 8px; background: #3b82f6; border-radius: 50; margin-right: 8px; vertical-align: middle;"></span>
+              <span style="color: #cbd5e1; font-size: 13px; vertical-align: middle;">Informatique</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="display: inline-block; width: 8px; height: 8px; background: #f59e0b; border-radius: 50; margin-right: 8px; vertical-align: middle;"></span>
+              <span style="color: #cbd5e1; font-size: 13px; vertical-align: middle;">Conduite</span>
+            </td>
+            <td style="padding: 4px 0;">
+              <span style="display: inline-block; width: 8px; height: 8px; background: #a855f7; border-radius: 50; margin-right: 8px; vertical-align: middle;"></span>
+              <span style="color: #cbd5e1; font-size: 13px; vertical-align: middle;">Couture</span>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p style="color: #475569; font-size: 11px; line-height: 1.5; margin: 0;">
+        Ce lien expirera dans 7 jours.
+      </p>
+    </div>
+
+    <!-- Pied de page -->
+    <div style="text-align: center; padding: 20px 0 4px;">
+      <p style="color: #475569; font-size: 11px; margin: 0 0 3px;">
+        &copy; 2026 Brotherly Training Center (BTC)
+      </p>
+      <p style="color: #334155; font-size: 10px; margin: 0;">
+        &Eacute;cole de Langues et M&eacute;tiers &mdash; Goma, Nord-Kivu, RDC
+      </p>
+    </div>
+
+  </div>
+</div>
+
+
+<!--
+  ============================================================
+  GUIDE RAPIDE — Configuration Supabase
+  ============================================================
+  
+  Allez sur : Supabase Dashboard > Authentication > Email Templates
+  
+  Template 1 — "Confirm signup"
+    Objet : BTC Goma — Confirmez votre adresse email
+    Corps : Copiez le TEMPLATE 1 ci-dessus
+  
+  Template 2 — "Reset password"
+    Objet : BTC Goma — Reinitialisez votre mot de passe
+    Corps : Copiez le TEMPLATE 2 ci-dessus
+  
+  Template 3 — "Magic Link"
+    Objet : BTC Goma — Votre lien de connexion
+    Corps : Copiez le TEMPLATE 3 ci-dessus
+  
+  Template 4 — "Change Email Address"
+    Objet : BTC Goma — Confirmez le changement d'email
+    Corps : Copiez le TEMPLATE 4 ci-dessus
+  
+  Template 5 — "Invite user"
+    Objet : BTC Goma — Vous etes invite(e) a rejoindre BTC
+    Corps : Copiez le TEMPLATE 5 ci-dessus
+  
+  ============================================================
+  HEBERGEMENT DU LOGO BTC
+  ============================================================
+  
+  1. Allez sur Supabase Dashboard → Storage
+  2. Creez un bucket PUBLIC nomme "assets"
+  3. Uploadez votre fichier btc-logo.png
+  4. Copiez l'URL publique generee
+  5. Remplacez TOUTES les occurrences de :
+     https://YOUR-PROJECT.supabase.co/storage/v1/object/public/assets/btc-logo.png
+     par votre URL reelle
+  
+  ============================================================
+  CONFIGURATION SMTP (Optionnel, recommande en production)
+  ============================================================
+  
+  Allez sur : Supabase Dashboard > Settings > Auth > SMTP Settings
+  
+  Fournisseurs recommandes :
+  - Resend (resend.com) — Gratuit : 100 emails/jour
+  - Brevo (brevo.com) — Gratuit : 300 emails/jour
+  - Mailgun — Tarification a l'usage
+  
+  Nom d'expediteur : BTC Goma
+  Email d'expediteur : noreply@btc-goma.cd (ou votre domaine)
+  
+  ============================================================
+-->
