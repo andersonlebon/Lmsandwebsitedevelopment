@@ -10,6 +10,7 @@ import {
   pgEnum,
   date,
 } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 const timestamptz = (name: string) =>
   timestamp(name, { withTimezone: true }).defaultNow();
@@ -89,3 +90,15 @@ export const programs = pgTable('programs', {
   createdAt: timestamptz('created_at'),
   updatedAt: timestamptz('updated_at'),
 });
+
+// Relations
+export const departmentsRelations = relations(departments, ({ many }) => ({
+  programs: many(programs),
+}));
+
+export const programsRelations = relations(programs, ({ one }) => ({
+  department: one(departments, {
+    fields: [programs.departmentId],
+    references: [departments.id],
+  }),
+}));
