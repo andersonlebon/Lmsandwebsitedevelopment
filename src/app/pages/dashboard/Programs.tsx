@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Search, Edit2, Trash2, X, DollarSign, GraduationCap, Car, Scissors, Monitor,
   ChevronDown, ChevronRight, Save, Loader2, AlertCircle, CheckCircle, Copy, Tag
 } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
+import { useAuth } from '../../../context/AuthContext';
 import { apiFetch } from '../../lib/api';
 
 type FeeType = 'one-time' | 'monthly' | 'per-term' | 'annual';
@@ -65,6 +67,8 @@ const BLANK_PROGRAM: Omit<Program, 'id'> = {
 
 export function Programs() {
   const { lang } = useLanguage();
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,6 +109,7 @@ export function Programs() {
         const result = await apiFetch('/programs', {
           method: 'POST',
           body: JSON.stringify({ ...form, id }),
+          requireAuth: true,
         });
         setPrograms(prev => [...prev, result.program]);
         setSuccessMsg(lang === 'fr' ? 'Programme créé avec succès !' : 'Program created successfully!');
@@ -112,6 +117,7 @@ export function Programs() {
         const result = await apiFetch(`/programs/${editProgram.id}`, {
           method: 'PUT',
           body: JSON.stringify(form),
+          requireAuth: true,
         });
         setPrograms(prev => prev.map(p => p.id === editProgram.id ? result.program : p));
         setSuccessMsg(lang === 'fr' ? 'Programme mis à jour !' : 'Program updated!');
@@ -119,7 +125,8 @@ export function Programs() {
       setModal(null);
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (e: any) {
-      setError(e.message || 'Failed to save');
+      const msg = e.message || 'Failed to save';
+      setError(msg);
     } finally {
       setSaving(false);
     }
@@ -128,11 +135,23 @@ export function Programs() {
   const handleDelete = async (id: string) => {
     if (!confirm(lang === 'fr' ? 'Supprimer ce programme et tous ses frais ?' : 'Delete this program and all its fees?')) return;
     try {
-      await apiFetch(`/programs/${id}`, { method: 'DELETE' });
+      await apiFetch(`/programs/${id}`, { method: 'DELETE', requireAuth: true });
       setPrograms(prev => prev.filter(p => p.id !== id));
-    } catch (e) {
+    } catch (e: any) {
       console.error('Delete failed:', e);
+      const msg = e?.message || 'Delete failed';
+      if (msg.includes('Session expired') || msg.includes('Unauthorized') || msg.includes('log in')) {
+        setError(msg);
+      }
     }
+  };
+
+  const isSessionError = (msg: string) =>
+    /session expired|please log in|unauthorized|invalid or missing token/i.test(msg);
+
+  const handleLogInAgain = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
   };
 
   const openAdd = () => {
@@ -558,8 +577,20 @@ export function Programs() {
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2 text-sm text-red-500">
-                    <AlertCircle size={14} /> {error}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-red-500">
+                      <AlertCircle size={14} /> {error}
+                    </div>
+                    {isSessionError(error) && (
+                      <Link
+                        to="/login"
+                        onClick={(ev) => { ev.preventDefault(); handleLogInAgain(); }}
+                        className="inline-flex items-center gap-1 text-sm font-medium"
+                        style={{ color: 'var(--btc-primary,#16a34a)' }}
+                      >
+                        {lang === 'fr' ? 'Se reconnecter' : 'Log in again'}
+                      </Link>
+                    )}
                   </div>
                 )}
               </div>

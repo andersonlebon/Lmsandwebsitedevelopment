@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { Shield, Lock, CheckCircle, AlertCircle, Loader2, Database, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiFetch } from '../lib/api';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
+const btcLogo = '/images/btc-logo.png';
 
 export function Setup() {
   const [password, setPassword] = useState('');

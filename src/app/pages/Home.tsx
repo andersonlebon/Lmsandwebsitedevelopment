@@ -5,16 +5,15 @@ import {
   Languages, Briefcase, Monitor, Calculator, Palette, Shield, GraduationCap,
   Bot, Sparkles, Building2
 } from 'lucide-react';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
 import { motion, useInView, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
 import { useLanguage } from '../../context/LanguageContext';
 
-import heroImg from 'figma:asset/2f69225f7b4c2e09bf8d79ebbc71990dcbef7d10.png';
+const btcLogo = '/images/btc-logo.png';
 const studentsImg = 'https://images.unsplash.com/photo-1747173708417-06828e9970ab?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoYXBweSUyMGFmcmljYW4lMjBzdHVkZW50cyUyMGdyYWR1YXRpb24lMjBjZXJlbW9ueXxlbnwxfHx8fDE3NzI3MzM0Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080';
-import trainingImg from 'figma:asset/6a04928782d55da419b2810286f18ce0d02b12d3.png';
+const trainingImg = '/images/training.jpg';
 const onlineImg = 'https://images.unsplash.com/photo-1762330910399-95caa55acf04?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvbmxpbmUlMjBsZWFybmluZyUyMGxhcHRvcCUyMGVkdWNhdGlvbiUyMHRlY2hub2xvZ3l8ZW58MXx8fHwxNzcyNzMzNDc2fDA&ixlib=rb-4.1.0&q=80&w=1080';
-import teacherImg from 'figma:asset/5b146961802a0693c4f2101423b15fe979ad824e.png';
+const teacherImg = '/images/teacher.jpg';
 
 function AnimatedSection({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   const ref = useRef(null);

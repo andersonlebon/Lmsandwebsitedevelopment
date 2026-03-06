@@ -9,7 +9,7 @@ import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
+const btcLogo = '/images/btc-logo.png';
 
 export function StaffLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);

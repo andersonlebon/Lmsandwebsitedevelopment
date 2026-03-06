@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
+const btcLogo = '/images/btc-logo.png';
 
 function roleRedirect(role: string): string {
   // Check if there's a pending payment from registration — redirect students to payments

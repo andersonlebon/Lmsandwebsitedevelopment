@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Menu, X, ChevronDown } from 'lucide-react';
 import { ThemeControls } from './ThemeControls';
 import { useLanguage } from '../../context/LanguageContext';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
+
+const btcLogo = '/images/btc-logo.png';
 
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);

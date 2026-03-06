@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router';
 import { User, BookOpen, Clock, CheckCircle, ArrowRight, ArrowLeft, GraduationCap, Phone, MapPin, Calendar, Users, AlertCircle, Mail, Loader2, Monitor, Car, Scissors } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import btcLogo from 'figma:asset/a830ae5c9e57e0e708aaa9224b0dd9363e9028d9.png';
+const btcLogo = '/images/btc-logo.png';
 
 // Fallback hardcoded programs — used only if API returns nothing
 const FALLBACK_PROGRAMS = [
