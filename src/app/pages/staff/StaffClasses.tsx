@@ -35,7 +35,7 @@ export function StaffClasses() {
           <motion.div key={cls.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
             className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <button onClick={() => setExpandedClass(expandedClass === cls.id ? null : cls.id)}
-              className="w-full flex items-center justify-between px-6 py-5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors text-left">
+              className="w-full flex items-center justify-between px-6 py-5 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors text-left">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'rgba(37,99,235,0.1)' }}>
                   <BookOpen size={20} style={{ color: 'var(--btc-primary,#2563eb)' }} />
@@ -62,7 +62,7 @@ export function StaffClasses() {
                       <span className="col-span-2">{t('common.status')}</span>
                     </div>
                     {cls.students.filter((s: any) => !search || s.name.toLowerCase().includes(search.toLowerCase())).map((s: any, j: number) => (
-                      <div key={j} className="grid grid-cols-12 gap-4 items-center px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                      <div key={j} className="grid grid-cols-12 gap-4 items-center px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
                         <div className="col-span-5 flex items-center gap-2">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--btc-primary,#2563eb)' }}>{s.name.charAt(0)}</div>
                           <span className="text-sm font-medium text-gray-900 dark:text-white">{s.name}</span>

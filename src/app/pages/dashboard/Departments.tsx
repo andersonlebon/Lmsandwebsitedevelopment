@@ -229,17 +229,17 @@ export function Departments() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-2 rounded-xl bg-gray-50 dark:bg-gray-750">
+                <div className="text-center p-2 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                   <p className="text-lg font-bold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>{dept.deptStudents}</p>
-                  <p className="text-xs text-gray-400">{t('common.students')}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.students')}</p>
                 </div>
-                <div className="text-center p-2 rounded-xl bg-gray-50 dark:bg-gray-750">
+                <div className="text-center p-2 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                   <p className="text-lg font-bold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>{dept.deptStaff}</p>
-                  <p className="text-xs text-gray-400">{t('common.staff')}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.staff')}</p>
                 </div>
-                <div className="text-center p-2 rounded-xl bg-gray-50 dark:bg-gray-750">
+                <div className="text-center p-2 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                   <p className="text-lg font-bold" style={{ fontFamily: 'Poppins', color: dept.color }}>{dept.deptPrograms.length}</p>
-                  <p className="text-xs text-gray-400">{lang === 'fr' ? 'Programmes' : 'Programs'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Programmes' : 'Programs'}</p>
                 </div>
               </div>
             </div>
@@ -252,7 +252,7 @@ export function Departments() {
                 <p className="text-xs text-gray-400 text-center py-2">{lang === 'fr' ? 'Aucun programme' : 'No programs yet'}</p>
               ) : (
                 dept.deptPrograms.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                  <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ background: dept.color }} />
                       <span className="text-sm text-gray-700 dark:text-gray-300">{lang === 'fr' ? p.name_fr || p.name : p.name}</span>
@@ -323,17 +323,17 @@ export function Departments() {
                       )}
 
                       <div className="grid grid-cols-3 gap-3">
-                        <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-gray-750">
+                        <div className="text-center p-3 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                           <p className="text-xl font-bold" style={{ fontFamily: 'Poppins', color: selected.color }}>{deptStudents}</p>
-                          <p className="text-xs text-gray-400">{t('common.students')}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.students')}</p>
                         </div>
-                        <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-gray-750">
+                        <div className="text-center p-3 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                           <p className="text-xl font-bold" style={{ fontFamily: 'Poppins', color: selected.color }}>{deptStaff2}</p>
-                          <p className="text-xs text-gray-400">{t('common.staff')}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.staff')}</p>
                         </div>
-                        <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-gray-750">
+                        <div className="text-center p-3 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                           <p className="text-xl font-bold" style={{ fontFamily: 'Poppins', color: selected.color }}>{deptProgs.length}</p>
-                          <p className="text-xs text-gray-400">{lang === 'fr' ? 'Programmes' : 'Programs'}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Programmes' : 'Programs'}</p>
                         </div>
                       </div>
 
@@ -379,7 +379,7 @@ export function Departments() {
                     )}
 
                     {/* Preview */}
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-750 border border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-100/80 dark:bg-gray-700/70 border border-gray-200/50 dark:border-gray-600/50">
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${form.color}15` }}>
                         <SelectedIcon size={20} style={{ color: form.color }} />
                       </div>

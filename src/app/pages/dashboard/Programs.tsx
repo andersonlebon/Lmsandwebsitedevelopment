@@ -320,7 +320,7 @@ export function Programs() {
                     return (
                       <div key={program.id}>
                         <div
-                          className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer"
+                          className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors cursor-pointer"
                           onClick={() => setExpandedId(isExpanded ? null : program.id)}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">

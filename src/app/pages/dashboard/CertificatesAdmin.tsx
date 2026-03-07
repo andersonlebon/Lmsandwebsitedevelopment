@@ -76,7 +76,7 @@ export function CertificatesAdmin() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {filtered.map((cert, i) => (
                 <motion.tr key={cert.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
                   <td className="px-6 py-3 font-mono text-xs text-gray-500">{cert.id}</td>
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2">

@@ -78,7 +78,7 @@ export function StaffAttendance() {
           )}
           {students.map((s, i) => (
             <motion.div key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
-              className="flex items-center justify-between px-6 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+              className="flex items-center justify-between px-6 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--btc-primary,#2563eb)' }}>
                   {s.name.charAt(0)}

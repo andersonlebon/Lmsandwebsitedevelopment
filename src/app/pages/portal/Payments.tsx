@@ -453,7 +453,7 @@ export function PortalPayments() {
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {payments.map((p) => (
               <motion.div key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                     p.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' :

@@ -55,7 +55,7 @@ export function StaffMaterials() {
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {materials.map((mat: any, i: number) => (
               <motion.div key={mat.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
-                className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
                     <FileText size={18} className="text-blue-500" />
