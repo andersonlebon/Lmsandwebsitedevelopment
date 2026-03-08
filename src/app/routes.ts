@@ -27,6 +27,11 @@ import { Programs } from './pages/dashboard/Programs';
 import { Promotions } from './pages/dashboard/Promotions';
 import { FeeStructures } from './pages/dashboard/FeeStructures';
 import { ExchangeRates } from './pages/dashboard/ExchangeRates';
+import { Enrollments } from './pages/dashboard/Enrollments';
+import { PeopleLayout, PeopleRedirect } from './pages/dashboard/PeopleLayout';
+import { AcademicLayout, AcademicRedirect } from './pages/dashboard/AcademicLayout';
+import { FinanceLayout, FinanceRedirect } from './pages/dashboard/FinanceLayout';
+import { ReportsCertificatesLayout, ReportsCertificatesRedirect } from './pages/dashboard/ReportsCertificatesLayout';
 import { PortalDashboard } from './pages/portal/Dashboard';
 import { PortalMyCourses } from './pages/portal/MyCourses';
 import { PortalCertificates } from './pages/portal/Certificates';
@@ -44,6 +49,7 @@ import { StaffAttendance } from './pages/staff/StaffAttendance';
 import { StaffMaterials } from './pages/staff/StaffMaterials';
 import { StaffSchedule } from './pages/staff/StaffSchedule';
 import { createElement } from 'react';
+import { Navigate } from 'react-router';
 
 // Helper to wrap a layout component with ProtectedRoute
 function withProtection(allowedRoles: ('admin' | 'staff' | 'student')[], LayoutComponent: any) {
@@ -88,18 +94,59 @@ export const router = createBrowserRouter([
     Component: withProtection(['admin'], DashboardLayout),
     children: [
       { index: true, Component: Overview },
-      { path: 'students', Component: Students },
-      { path: 'staff', Component: Staff },
-      { path: 'departments', Component: Departments },
-      { path: 'financing', Component: Financing },
-      { path: 'certificates', Component: CertificatesAdmin },
-      { path: 'reports', Component: Reports },
+      {
+        path: 'people',
+        Component: PeopleLayout,
+        children: [
+          { index: true, Component: PeopleRedirect },
+          { path: 'students', Component: Students },
+          { path: 'staff', Component: Staff },
+        ],
+      },
+      {
+        path: 'academic',
+        Component: AcademicLayout,
+        children: [
+          { index: true, Component: AcademicRedirect },
+          { path: 'departments', Component: Departments },
+          { path: 'programs', Component: Programs },
+          { path: 'promotions', Component: Promotions },
+          { path: 'fee-structures', Component: FeeStructures },
+          { path: 'enrollments', Component: Enrollments },
+        ],
+      },
+      {
+        path: 'finance',
+        Component: FinanceLayout,
+        children: [
+          { index: true, Component: FinanceRedirect },
+          { path: 'exchange-rates', Component: ExchangeRates },
+          { path: 'financing', Component: Financing },
+        ],
+      },
+      {
+        path: 'reports-certificates',
+        Component: ReportsCertificatesLayout,
+        children: [
+          { index: true, Component: ReportsCertificatesRedirect },
+          { path: 'reports', Component: Reports },
+          { path: 'certificates', Component: CertificatesAdmin },
+        ],
+      },
       { path: 'online-studies', Component: OnlineStudies },
-      { path: 'programs', Component: Programs },
-      { path: 'promotions', Component: Promotions },
-      { path: 'fee-structures', Component: FeeStructures },
-      { path: 'exchange-rates', Component: ExchangeRates },
       { path: 'settings', Component: Settings },
+      // Redirects for old paths (backward compatibility)
+      { path: 'students', Component: () => createElement(Navigate, { to: '/dashboard/people/students', replace: true }) },
+      { path: 'staff', Component: () => createElement(Navigate, { to: '/dashboard/people/staff', replace: true }) },
+      { path: 'departments', Component: () => createElement(Navigate, { to: '/dashboard/academic/departments', replace: true }) },
+      { path: 'programs', Component: () => createElement(Navigate, { to: '/dashboard/academic/programs', replace: true }) },
+      { path: 'promotions', Component: () => createElement(Navigate, { to: '/dashboard/academic/promotions', replace: true }) },
+      { path: 'fee-structures', Component: () => createElement(Navigate, { to: '/dashboard/academic/fee-structures', replace: true }) },
+      { path: 'enrollments', Component: () => createElement(Navigate, { to: '/dashboard/academic/enrollments', replace: true }) },
+      { path: 'exchange-rates', Component: () => createElement(Navigate, { to: '/dashboard/finance/exchange-rates', replace: true }) },
+      { path: 'financing', Component: () => createElement(Navigate, { to: '/dashboard/finance/financing', replace: true }) },
+      { path: 'reports', Component: () => createElement(Navigate, { to: '/dashboard/reports-certificates/reports', replace: true }) },
+      { path: 'certificates', Component: () => createElement(Navigate, { to: '/dashboard/reports-certificates/certificates', replace: true }) },
     ],
   },
 

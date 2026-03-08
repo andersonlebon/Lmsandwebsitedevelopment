@@ -3,8 +3,8 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard, Users, UserCog, DollarSign, BookOpen,
-  Settings, LogOut, Menu, X, GraduationCap, Bell, Search, ChevronRight,
-  Building2, Award, BarChart3, ClipboardList, CalendarDays, Tag, TrendingUp
+  Settings, LogOut, Menu, ChevronRight, Search,
+  Building2, Award, BarChart3, TrendingUp
 } from 'lucide-react';
 import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
@@ -22,16 +22,10 @@ export function DashboardLayout() {
 
   const navItems = [
     { href: '/dashboard', label: t('common.overview'), icon: LayoutDashboard, exact: true },
-    { href: '/dashboard/students', label: t('common.students'), icon: Users },
-    { href: '/dashboard/staff', label: t('common.staff'), icon: UserCog },
-    { href: '/dashboard/departments', label: t('common.departments'), icon: Building2 },
-    { href: '/dashboard/programs', label: lang === 'fr' ? 'Programmes & Frais' : 'Programs & Fees', icon: ClipboardList },
-    { href: '/dashboard/promotions', label: lang === 'fr' ? 'Promotions' : 'Promotions', icon: CalendarDays },
-    { href: '/dashboard/fee-structures', label: lang === 'fr' ? 'Structure des Frais' : 'Fee Structures', icon: Tag },
-    { href: '/dashboard/exchange-rates', label: lang === 'fr' ? 'Taux de change' : 'Exchange Rates', icon: TrendingUp },
-    { href: '/dashboard/financing', label: t('common.financing'), icon: DollarSign },
-    { href: '/dashboard/certificates', label: t('common.certificatesAdmin'), icon: Award },
-    { href: '/dashboard/reports', label: t('common.reports'), icon: BarChart3 },
+    { href: '/dashboard/people/students', label: t('common.people'), icon: Users, prefix: '/dashboard/people' },
+    { href: '/dashboard/academic/departments', label: t('common.academic'), icon: Building2, prefix: '/dashboard/academic' },
+    { href: '/dashboard/finance/exchange-rates', label: t('common.finance'), icon: DollarSign, prefix: '/dashboard/finance' },
+    { href: '/dashboard/reports-certificates/reports', label: t('common.reportsAndCertificates'), icon: BarChart3, prefix: '/dashboard/reports-certificates' },
     { href: '/dashboard/online-studies', label: t('common.onlineStudies'), icon: BookOpen },
     { href: '/dashboard/settings', label: t('common.settings'), icon: Settings },
   ];
@@ -42,8 +36,11 @@ export function DashboardLayout() {
     setMobileSidebarOpen(false);
   }, [location]);
 
-  const isActive = (href: string, exact?: boolean) =>
-    exact ? location.pathname === href : location.pathname === href;
+  const isActive = (item: { href: string; exact?: boolean; prefix?: string }) => {
+    if (item.exact) return location.pathname === item.href;
+    if (item.prefix) return location.pathname === item.prefix || location.pathname.startsWith(item.prefix + '/');
+    return location.pathname === item.href;
+  };
 
   const user = authUser
     ? { name: authUser.name, role: 'Administrator' }
@@ -79,7 +76,7 @@ export function DashboardLayout() {
       {/* Nav items */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map(item => {
-          const active = isActive(item.href, item.exact);
+          const active = isActive(item);
           return (
             <Link
               key={item.href}

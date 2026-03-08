@@ -402,6 +402,15 @@ const translations: Record<string, Record<Lang, string>> = {
   'common.myAttendance': { en: 'My Attendance', fr: 'Mes Présences' },
   'common.myPayments': { en: 'My Payments', fr: 'Mes Paiements' },
   'common.register': { en: 'Register', fr: 'S\'inscrire' },
+  'common.people': { en: 'People', fr: 'Personnel & Étudiants' },
+  'common.academic': { en: 'Academic', fr: 'Académique' },
+  'common.finance': { en: 'Finance', fr: 'Finances' },
+  'common.reportsAndCertificates': { en: 'Reports & Certificates', fr: 'Rapports & Certificats' },
+  'common.programsAndFees': { en: 'Programs & Fees', fr: 'Programmes & Frais' },
+  'common.promotions': { en: 'Promotions', fr: 'Promotions' },
+  'common.feeStructures': { en: 'Fee Structures', fr: 'Structure des Frais' },
+  'common.enrollments': { en: 'Enrollments', fr: 'Inscriptions' },
+  'common.exchangeRates': { en: 'Exchange Rates', fr: 'Taux de change' },
 
   // ── Staff ──
   'staff.title': { en: 'Staff Dashboard', fr: 'Tableau de Bord Personnel' },

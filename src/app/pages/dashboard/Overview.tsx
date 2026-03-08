@@ -125,7 +125,7 @@ export function Overview() {
       >
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-gray-900 dark:text-white font-semibold" style={{ fontFamily: 'Poppins' }}>{t('dash.recentEnrollments')}</h3>
-          <Link to="/dashboard/students" className="text-xs font-medium hover:underline flex items-center gap-1" style={{ color: 'var(--btc-primary,#16a34a)' }}>
+          <Link to="/dashboard/people/students" className="text-xs font-medium hover:underline flex items-center gap-1" style={{ color: 'var(--btc-primary,#16a34a)' }}>
             {t('dash.viewAll')} <ArrowRight size={12} />
           </Link>
         </div>
@@ -177,10 +177,10 @@ export function Overview() {
         <h3 className="text-gray-900 dark:text-white font-semibold mb-4" style={{ fontFamily: 'Poppins' }}>{t('dash.quickActions')}</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: t('dash.addStudent'), icon: Users, href: '/dashboard/students', color: '#16a34a' },
-            { label: t('dash.addStaff'), icon: UserCog, href: '/dashboard/staff', color: '#2563eb' },
+            { label: t('dash.addStudent'), icon: Users, href: '/dashboard/people/students', color: '#16a34a' },
+            { label: t('dash.addStaff'), icon: UserCog, href: '/dashboard/people/staff', color: '#2563eb' },
             { label: t('dash.newCourse'), icon: BookOpen, href: '/dashboard/online-studies', color: '#7c3aed' },
-            { label: t('dash.viewFinance'), icon: DollarSign, href: '/dashboard/financing', color: '#ea580c' },
+            { label: t('dash.viewFinance'), icon: DollarSign, href: '/dashboard/finance/financing', color: '#ea580c' },
           ].map((action, i) => (
             <Link
               key={i}

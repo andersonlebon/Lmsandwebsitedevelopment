@@ -43,6 +43,13 @@
       "when": 1772872332342,
       "tag": "0005_acoustic_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772959142939,
+      "tag": "0006_narrow_landau",
+      "breakpoints": true
     }
   ]
 }

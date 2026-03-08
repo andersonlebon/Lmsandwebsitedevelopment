@@ -38,6 +38,7 @@ export const durationUnitEnum = pgEnum('duration_unit', [
 ]);
 
 export const enrollmentStatusEnum = pgEnum('enrollment_status', [
+  'pending',   // awaiting admin approval (e.g. after payment)
   'active',
   'completed',
   'dropped',
@@ -183,7 +184,7 @@ export const enrollments = pgTable('enrollments', {
   studentId: uuid('student_id').notNull(),
   programId: uuid('program_id'),
   promotionId: uuid('promotion_id'),
-  status: enrollmentStatusEnum('status').notNull().default('active'),
+  status: enrollmentStatusEnum('status').notNull().default('pending'),
   enrolledAt: timestamptz('enrolled_at').defaultNow(),
   progress: integer('progress').default(0),
   metadata: jsonb('metadata').default({}),

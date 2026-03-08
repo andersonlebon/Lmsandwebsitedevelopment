@@ -35,30 +35,36 @@ interface FeeStructure {
   sortOrder: number;
 }
 
+interface Department {
+  id: string;
+  name: string;
+  name_fr?: string;
+  slug: string;
+  color?: string;
+}
+
 interface Program {
   id: string;
   department: string;
+  departmentId?: string;
   name: string;
   nameFr: string;
   description?: string;
   descriptionFr?: string;
   status: 'active' | 'inactive';
   fees: Fee[];
+  durationMonths?: number;
+  totalAmountToPay?: number;
   createdAt?: string;
 }
 
-const DEPARTMENTS = [
-  { id: 'english', icon: GraduationCap, color: '#16a34a' },
-  { id: 'computer', icon: Monitor, color: '#2563eb' },
-  { id: 'driving', icon: Car, color: '#ea580c' },
-  { id: 'sewing', icon: Scissors, color: '#d946ef' },
-];
+type ProgramForm = Omit<Program, 'id'>;
 
-const DEPT_NAMES: Record<string, Record<string, string>> = {
-  english: { en: 'English', fr: 'Anglais' },
-  computer: { en: 'Computer Science', fr: 'Informatique' },
-  driving: { en: 'Driving', fr: 'Conduite' },
-  sewing: { en: 'Sewing', fr: 'Couture' },
+const DEPT_ICONS: Record<string, { icon: typeof GraduationCap; color: string }> = {
+  english: { icon: GraduationCap, color: '#16a34a' },
+  computer: { icon: Monitor, color: '#2563eb' },
+  driving: { icon: Car, color: '#ea580c' },
+  sewing: { icon: Scissors, color: '#d946ef' },
 };
 
 const FEE_TYPES: { id: FeeType; en: string; fr: string }[] = [
@@ -74,8 +80,8 @@ const BLANK_FEE: Omit<Fee, 'id'> = {
   name: '', nameFr: '', amount: 0, currency: 'USD', type: 'one-time', required: true, order: 0,
 };
 
-const BLANK_PROGRAM: Omit<Program, 'id'> = {
-  department: 'english', name: '', nameFr: '', description: '', descriptionFr: '', status: 'active', fees: [],
+const BLANK_PROGRAM: ProgramForm = {
+  department: '', departmentId: '', name: '', nameFr: '', description: '', descriptionFr: '', status: 'active', fees: [], durationMonths: 0,
 };
 
 export function Programs() {
@@ -91,8 +97,9 @@ export function Programs() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editProgram, setEditProgram] = useState<Program | null>(null);
-  const [form, setForm] = useState<Omit<Program, 'id'>>({ ...BLANK_PROGRAM });
+  const [form, setForm] = useState<ProgramForm>({ ...BLANK_PROGRAM });
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -100,8 +107,12 @@ export function Programs() {
     loadPrograms();
     (async () => {
       try {
-        const data = await apiFetch('/fee-structures');
-        setFeeStructures(data.feeStructures || []);
+        const [feeData, deptData] = await Promise.all([
+          apiFetch('/fee-structures'),
+          apiFetch('/departments'),
+        ]);
+        setFeeStructures(feeData.feeStructures || []);
+        setDepartments(deptData.departments || []);
       } catch (_) {}
     })();
   }, []);
@@ -118,7 +129,7 @@ export function Programs() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.department) {
+    if (!form.name || !form.departmentId) {
       setError(lang === 'fr' ? 'Le nom et le département sont obligatoires' : 'Name and department are required');
       return;
     }
@@ -126,7 +137,7 @@ export function Programs() {
     setError('');
     const programFees = form.fees.filter(f => f.feeStructureId).map((f) => ({ feeStructureId: f.feeStructureId!, amountOverride: f.amount }));
     const legacyFees = form.fees.filter(f => !f.feeStructureId);
-    const payload = { ...form, fees: legacyFees };
+    const payload = { ...form, fees: legacyFees, departmentId: form.departmentId, durationMonths: form.durationMonths ?? 0 };
     if (programFees.length > 0) (payload as any).programFees = programFees;
     try {
       if (modal === 'add') {
@@ -188,13 +199,15 @@ export function Programs() {
 
   const openEdit = (p: Program) => {
     setForm({
-      department: p.department,
+      department: p.department || '',
+      departmentId: p.departmentId || '',
       name: p.name,
       nameFr: p.nameFr,
       description: p.description || '',
       descriptionFr: p.descriptionFr || '',
       status: p.status,
       fees: [...(p.fees || [])],
+      durationMonths: p.durationMonths ?? 0,
     });
     setEditProgram(p);
     setError('');
@@ -283,7 +296,7 @@ export function Programs() {
   const customFeesCount = form.fees.filter(f => !f.feeStructureId).length;
 
   const filtered = programs.filter(p => {
-    const matchDept = deptFilter === 'all' || p.department === deptFilter;
+    const matchDept = deptFilter === 'all' || p.department === deptFilter || p.departmentId === deptFilter;
     const matchSearch = !search || (p.name + p.nameFr).toLowerCase().includes(search.toLowerCase());
     return matchDept && matchSearch;
   });
@@ -361,8 +374,8 @@ export function Programs() {
         <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
           className="px-4 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500">
           <option value="all">{lang === 'fr' ? 'Tous les départements' : 'All Departments'}</option>
-          {DEPARTMENTS.map(d => (
-            <option key={d.id} value={d.id}>{DEPT_NAMES[d.id]?.[lang] || d.id}</option>
+          {departments.map(d => (
+            <option key={d.id} value={d.slug}>{lang === 'fr' ? (d.name_fr || d.name) : d.name}</option>
           ))}
         </select>
       </div>
@@ -381,18 +394,19 @@ export function Programs() {
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(groupedByDept).map(([deptId, deptPrograms]) => {
-            const dept = DEPARTMENTS.find(d => d.id === deptId);
-            const DeptIcon = dept?.icon || BookOpen;
+          {Object.entries(groupedByDept).map(([deptSlug, deptPrograms]) => {
+            const dept = departments.find(d => d.slug === deptSlug);
+            const iconAndColor = DEPT_ICONS[deptSlug] || { icon: BookOpen, color: dept?.color || '#666' };
+            const DeptIcon = iconAndColor.icon;
             return (
-              <div key={deptId} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+              <div key={deptSlug} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
                 {/* Department header */}
                 <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${dept?.color || '#666'}20` }}>
-                    <DeptIcon size={16} style={{ color: dept?.color || '#666' }} />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${iconAndColor.color}20` }}>
+                    <DeptIcon size={16} style={{ color: iconAndColor.color }} />
                   </div>
                   <span className="font-semibold text-gray-900 dark:text-white text-sm" style={{ fontFamily: 'Poppins' }}>
-                    {DEPT_NAMES[deptId]?.[lang] || deptId}
+                    {dept ? (lang === 'fr' ? (dept.name_fr || dept.name) : dept.name) : deptSlug}
                   </span>
                   <span className="text-xs text-gray-400 ml-auto">{deptPrograms.length} {lang === 'fr' ? 'programmes' : 'programs'}</span>
                 </div>
@@ -401,7 +415,7 @@ export function Programs() {
                 <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
                   {deptPrograms.map(program => {
                     const isExpanded = expandedId === program.id;
-                    const feesTotal = (program.fees || []).reduce((s, f) => s + f.amount, 0);
+                    const feesTotal = program.totalAmountToPay ?? (program.fees || []).reduce((s, f) => s + f.amount, 0);
                     return (
                       <div key={program.id}>
                         <div
@@ -422,7 +436,7 @@ export function Programs() {
                             </div>
                             <p className="text-xs text-gray-400 mt-0.5">
                               {(program.fees || []).length} {lang === 'fr' ? 'frais' : 'fees'} {' '}
-                              {feesTotal > 0 && <span className="font-medium" style={{ color: dept?.color }}>= ${feesTotal}</span>}
+                              {feesTotal > 0 && <span className="font-medium" style={{ color: iconAndColor.color }}>= ${feesTotal}</span>}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -468,7 +482,7 @@ export function Programs() {
                                             <td className="px-4 py-2.5 text-gray-500">
                                               {FEE_TYPES.find(t => t.id === fee.type)?.[lang === 'fr' ? 'fr' : 'en'] || fee.type}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right font-bold" style={{ color: dept?.color }}>
+                                            <td className="px-4 py-2.5 text-right font-bold" style={{ color: iconAndColor.color }}>
                                               {fee.currency === 'CDF' ? 'FC' : fee.currency === 'RWF' ? 'FRw' : '$'}{fee.amount}
                                             </td>
                                             <td className="px-4 py-2.5 text-center">
@@ -533,9 +547,17 @@ export function Programs() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>{lang === 'fr' ? 'Département' : 'Department'} *</label>
-                    <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls}>
-                      {DEPARTMENTS.map(d => (
-                        <option key={d.id} value={d.id}>{DEPT_NAMES[d.id]?.[lang]}</option>
+                    <select
+                      value={form.departmentId}
+                      onChange={e => {
+                        const d = departments.find(dep => dep.id === e.target.value);
+                        setForm(f => ({ ...f, departmentId: e.target.value, department: d?.slug || '' }));
+                      }}
+                      className={inputCls}
+                    >
+                      <option value="">{lang === 'fr' ? 'Choisir…' : 'Select…'}</option>
+                      {departments.map(d => (
+                        <option key={d.id} value={d.id}>{lang === 'fr' ? (d.name_fr || d.name) : d.name}</option>
                       ))}
                     </select>
                   </div>
@@ -555,6 +577,11 @@ export function Programs() {
                   <div>
                     <label className={labelCls}>{lang === 'fr' ? 'Nom (français)' : 'Name (French)'}</label>
                     <input value={form.nameFr} onChange={e => setForm(f => ({ ...f, nameFr: e.target.value }))} className={inputCls} placeholder="ex: Niveau 1" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>{lang === 'fr' ? 'Durée (mois)' : 'Duration (months)'}</label>
+                    <input type="number" min={0} value={form.durationMonths ?? 0} onChange={e => setForm(f => ({ ...f, durationMonths: Number(e.target.value) || 0 }))} className={inputCls} placeholder="12" />
+                    <p className="text-xs text-gray-500 mt-0.5">{lang === 'fr' ? 'Utilisé pour le total des frais (mensuels × durée).' : 'Used for total fees (monthly × duration).'}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">

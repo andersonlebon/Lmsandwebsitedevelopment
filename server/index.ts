@@ -288,17 +288,49 @@ app.get('/stats', async (c) => {
   }
 });
 
-function programRowToApi(row: any, departmentSlug?: string, resolvedFees?: any[]) {
+/** Compute total amount to pay from fees and program duration (months). Monthly/weekly fees are multiplied by duration. */
+function computeProgramTotalFees(fees: { amount: number; type?: string }[], durationMonths: number): number {
+  let total = 0;
+  const months = Math.max(1, durationMonths || 0);
+  for (const f of fees) {
+    const amt = Number(f.amount) || 0;
+    switch (f.type) {
+      case 'monthly':
+        total += amt * months;
+        break;
+      case 'annual':
+        total += amt * Math.max(1, Math.ceil(months / 12));
+        break;
+      case 'per-term':
+        total += amt * Math.max(1, Math.ceil(months / 3));
+        break;
+      case 'weekly':
+        total += amt * Math.max(1, Math.ceil(months * 4.33));
+        break;
+      default:
+        total += amt; // one-time
+        break;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}
+
+function programRowToApi(row: any, departmentSlug?: string, resolvedFees?: any[], durationMonths?: number) {
   const fees = resolvedFees !== undefined ? resolvedFees : (row.fees ?? []);
+  const duration = durationMonths ?? row.durationMonths ?? row.duration_months ?? 0;
+  const totalAmountToPay = computeProgramTotalFees(fees, duration);
   return {
     id: row.id,
     name: row.name,
     nameFr: row.nameFr ?? row.name_fr ?? '',
     department: departmentSlug ?? row.department?.slug ?? row.department_slug,
+    departmentId: row.departmentId ?? row.department_id,
     description: row.description ?? '',
     descriptionFr: row.descriptionFr ?? row.description_fr ?? '',
     status: row.status ?? 'active',
     fees,
+    durationMonths: duration,
+    totalAmountToPay,
     createdAt: row.createdAt ?? row.created_at,
     departments: row.department ? { id: row.department.id, name: row.department.name, name_fr: row.department.nameFr, slug: row.department.slug, color: row.department.color } : undefined,
   };
@@ -355,6 +387,7 @@ app.get('/programs', async (c) => {
         name: programs.name,
         nameFr: programs.nameFr,
         departmentId: programs.departmentId,
+        durationMonths: programs.durationMonths,
         description: programs.description,
         descriptionFr: programs.descriptionFr,
         status: programs.status,
@@ -373,7 +406,7 @@ app.get('/programs', async (c) => {
     const feesMap = await resolveProgramFees(programIds);
     const list = rows.map((r) => {
       const resolved = feesMap.get(r.id);
-      return programRowToApi(r, r.slug ?? undefined, resolved);
+      return programRowToApi(r, r.slug ?? undefined, resolved, r.durationMonths ?? 0);
     });
     return c.json({ programs: list });
   } catch (e) {
@@ -392,6 +425,7 @@ app.get('/programs/:id', async (c) => {
         name: programs.name,
         nameFr: programs.nameFr,
         departmentId: programs.departmentId,
+        durationMonths: programs.durationMonths,
         description: programs.description,
         descriptionFr: programs.descriptionFr,
         status: programs.status,
@@ -409,7 +443,7 @@ app.get('/programs/:id', async (c) => {
     if (!row) return c.json({ error: 'Program not found' }, 404);
     const resolvedList = (await resolveProgramFees([id])).get(id);
     const fees: any[] = resolvedList ?? (Array.isArray(row.fees) ? row.fees : []);
-    return c.json({ program: programRowToApi(row, row.slug ?? undefined, fees) });
+    return c.json({ program: programRowToApi(row, row.slug ?? undefined, fees, row.durationMonths ?? 0) });
   } catch (e) {
     console.error('Get program error:', e);
     return c.json({ error: `Failed to get program: ${(e as Error).message}` }, 500);
@@ -423,16 +457,24 @@ app.post('/programs', async (c) => {
     if (admin instanceof Response) return admin;
 
     const body = await c.req.json();
-    const departmentSlug = body.department; // frontend sends slug: english | computer | driving | sewing
-    if (!departmentSlug) return c.json({ error: 'department (slug) is required' }, 400);
-
-    const [dept] = await db.select().from(departments).where(eq(departments.slug, departmentSlug));
-    if (!dept) return c.json({ error: `Department not found for slug: ${departmentSlug}` }, 400);
+    let departmentId: string;
+    if (body.departmentId) {
+      const [dept] = await db.select().from(departments).where(eq(departments.id, body.departmentId));
+      if (!dept) return c.json({ error: `Department not found for id: ${body.departmentId}` }, 400);
+      departmentId = dept.id;
+    } else if (body.department) {
+      const [dept] = await db.select().from(departments).where(eq(departments.slug, body.department));
+      if (!dept) return c.json({ error: `Department not found for slug: ${body.department}` }, 400);
+      departmentId = dept.id;
+    } else {
+      return c.json({ error: 'departmentId or department (slug) is required' }, 400);
+    }
 
     const insertPayload = {
       name: body.name ?? '',
       nameFr: body.nameFr ?? body.name_fr ?? '',
-      departmentId: dept.id,
+      departmentId,
+      durationMonths: body.durationMonths != null ? Number(body.durationMonths) : 0,
       description: body.description ?? '',
       descriptionFr: body.descriptionFr ?? body.description_fr ?? '',
       status: (body.status === 'archived' || body.status === 'draft') ? body.status : 'active',
@@ -461,6 +503,7 @@ app.post('/programs', async (c) => {
         name: programs.name,
         nameFr: programs.nameFr,
         departmentId: programs.departmentId,
+        durationMonths: programs.durationMonths,
         description: programs.description,
         descriptionFr: programs.descriptionFr,
         status: programs.status,
@@ -474,7 +517,7 @@ app.post('/programs', async (c) => {
 
     const resolvedList = (await resolveProgramFees([programId])).get(programId);
     const fees: any[] = resolvedList ?? (Array.isArray(withDept!.fees) ? withDept!.fees : []);
-    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees) });
+    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees, withDept!.durationMonths ?? 0) });
   } catch (e) {
     console.error('Create program error:', e);
     return c.json({ error: `Failed to create program: ${(e as Error).message}` }, 500);
@@ -492,7 +535,11 @@ app.put('/programs/:id', async (c) => {
     delete body.id;
 
     let departmentId: string | undefined;
-    if (body.department != null) {
+    if (body.departmentId != null) {
+      const [dept] = await db.select().from(departments).where(eq(departments.id, body.departmentId));
+      if (!dept) return c.json({ error: `Department not found for id: ${body.departmentId}` }, 400);
+      departmentId = dept.id;
+    } else if (body.department != null) {
       const [dept] = await db.select().from(departments).where(eq(departments.slug, body.department));
       if (!dept) return c.json({ error: `Department not found for slug: ${body.department}` }, 400);
       departmentId = dept.id;
@@ -505,6 +552,7 @@ app.put('/programs/:id', async (c) => {
       descriptionFr: body.descriptionFr ?? body.description_fr,
       status: body.status,
       fees: Array.isArray(body.fees) ? body.fees : undefined,
+      durationMonths: body.durationMonths != null ? Number(body.durationMonths) : undefined,
     };
     if (departmentId) updatePayload.departmentId = departmentId;
 
@@ -537,6 +585,7 @@ app.put('/programs/:id', async (c) => {
         name: programs.name,
         nameFr: programs.nameFr,
         departmentId: programs.departmentId,
+        durationMonths: programs.durationMonths,
         description: programs.description,
         descriptionFr: programs.descriptionFr,
         status: programs.status,
@@ -550,7 +599,7 @@ app.put('/programs/:id', async (c) => {
 
     const resolvedList = (await resolveProgramFees([id])).get(id);
     const fees: any[] = resolvedList ?? (Array.isArray(withDept!.fees) ? withDept!.fees : []);
-    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees) });
+    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees, withDept!.durationMonths ?? 0) });
   } catch (e) {
     console.error('Update program error:', e);
     return c.json({ error: `Failed to update program: ${(e as Error).message}` }, 500);
@@ -1191,7 +1240,7 @@ app.post('/enrollments', async (c) => {
       studentId: auth.userId,
       programId,
       promotionId: promo.id,
-      status: 'active',
+      status: 'pending', // admin approves when payment confirmed
     }).returning();
     return c.json({ enrollment: inserted });
   } catch (e) {
@@ -1213,6 +1262,7 @@ app.get('/enrollments/my', async (c) => {
         enrolledAt: enrollments.enrolledAt,
         progName: programs.name,
         progNameFr: programs.nameFr,
+        durationMonths: programs.durationMonths,
         promoName: promotions.name,
         promoNameFr: promotions.nameFr,
         startDate: promotions.startDate,
@@ -1222,10 +1272,115 @@ app.get('/enrollments/my', async (c) => {
       .leftJoin(programs, eq(enrollments.programId, programs.id))
       .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
       .where(eq(enrollments.studentId, auth.userId));
-    return c.json({ enrollments: rows });
+    const programIds = [...new Set(rows.map((r) => r.programId).filter(Boolean))] as string[];
+    const feesMap = await resolveProgramFees(programIds);
+    const enrollmentsWithTotal = rows.map((r) => {
+      const fees = r.programId ? (feesMap.get(r.programId) ?? []) : [];
+      const totalAmountToPay = computeProgramTotalFees(fees, r.durationMonths ?? 0);
+      return {
+        id: r.id,
+        programId: r.programId,
+        promotionId: r.promotionId,
+        status: r.status,
+        enrolledAt: r.enrolledAt,
+        progName: r.progName,
+        progNameFr: r.progNameFr,
+        promoName: r.promoName,
+        promoNameFr: r.promoNameFr,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        totalAmountToPay,
+      };
+    });
+    return c.json({ enrollments: enrollmentsWithTotal });
   } catch (e) {
     console.error('List my enrollments error:', e);
     return c.json({ error: `Failed to list enrollments: ${(e as Error).message}` }, 500);
+  }
+});
+
+// GET /enrollments — admin: list all enrollments, optional ?status=pending
+app.get('/enrollments', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const statusFilter = c.req.query('status');
+    const baseQuery = db
+      .select({
+        id: enrollments.id,
+        studentId: enrollments.studentId,
+        programId: enrollments.programId,
+        promotionId: enrollments.promotionId,
+        status: enrollments.status,
+        enrolledAt: enrollments.enrolledAt,
+        studentName: profiles.name,
+        studentEmail: profiles.email,
+        progName: programs.name,
+        progNameFr: programs.nameFr,
+        durationMonths: programs.durationMonths,
+        promoName: promotions.name,
+        promoNameFr: promotions.nameFr,
+        startDate: promotions.startDate,
+        endDate: promotions.endDate,
+      })
+      .from(enrollments)
+      .leftJoin(profiles, eq(enrollments.studentId, profiles.id))
+      .leftJoin(programs, eq(enrollments.programId, programs.id))
+      .leftJoin(promotions, eq(enrollments.promotionId, promotions.id));
+    const rows = statusFilter
+      ? await baseQuery.where(eq(enrollments.status, statusFilter)).orderBy(desc(enrollments.enrolledAt))
+      : await baseQuery.orderBy(desc(enrollments.enrolledAt));
+    const programIds = [...new Set(rows.map((r) => r.programId).filter(Boolean))] as string[];
+    const feesMap = await resolveProgramFees(programIds);
+    const list = rows.map((r) => {
+      const fees = r.programId ? (feesMap.get(r.programId) ?? []) : [];
+      const totalAmountToPay = computeProgramTotalFees(fees, r.durationMonths ?? 0);
+      return {
+        id: r.id,
+        studentId: r.studentId,
+        programId: r.programId,
+        promotionId: r.promotionId,
+        status: r.status,
+        enrolledAt: r.enrolledAt,
+        studentName: r.studentName,
+        studentEmail: r.studentEmail,
+        progName: r.progName,
+        progNameFr: r.progNameFr,
+        promoName: r.promoName,
+        promoNameFr: r.promoNameFr,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        totalAmountToPay,
+      };
+    });
+    return c.json({ enrollments: list });
+  } catch (e) {
+    console.error('List enrollments error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// PATCH /enrollments/:id — admin: update status (e.g. approve: set to 'active')
+app.patch('/enrollments/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const status = body.status;
+    if (!status || !['pending', 'active', 'completed', 'dropped', 'suspended'].includes(status)) {
+      return c.json({ error: 'status must be one of: pending, active, completed, dropped, suspended' }, 400);
+    }
+    const [updated] = await db
+      .update(enrollments)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(eq(enrollments.id, id))
+      .returning();
+    if (!updated) return c.json({ error: 'Enrollment not found' }, 404);
+    return c.json({ enrollment: updated });
+  } catch (e) {
+    console.error('Update enrollment error:', e);
+    return c.json({ error: (e as Error).message }, 500);
   }
 });
 
