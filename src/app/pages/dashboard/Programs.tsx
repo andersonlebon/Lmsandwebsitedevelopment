@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Search, Edit2, Trash2, X, DollarSign, GraduationCap, Car, Scissors, Monitor,
-  ChevronDown, ChevronRight, Save, Loader2, AlertCircle, CheckCircle, Copy, Tag
+  ChevronDown, ChevronRight, Save, Loader2, AlertCircle, CheckCircle, Copy, Tag, Clock
 } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -102,6 +102,10 @@ export function Programs() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [programClasses, setProgramClasses] = useState<{ id: string; programId: string; name: string; startTime: string; endTime: string; dayOfWeek?: number | null; room?: string }[]>([]);
+  const [classModal, setClassModal] = useState(false);
+  const [classForm, setClassForm] = useState({ startTime: '', endTime: '', name: '', room: '' });
+  const [savingClass, setSavingClass] = useState(false);
 
   useEffect(() => {
     loadPrograms();
@@ -125,6 +129,47 @@ export function Programs() {
       console.error('Failed to load programs:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!expandedId) {
+      setProgramClasses([]);
+      return;
+    }
+    apiFetch(`/programs/${expandedId}/classes`)
+      .then((data: { classes?: any[] }) => setProgramClasses(data.classes || []))
+      .catch(() => setProgramClasses([]));
+  }, [expandedId]);
+
+  const saveClass = async () => {
+    if (!expandedId || !classForm.startTime || !classForm.endTime) return;
+    setSavingClass(true);
+    setError('');
+    try {
+      await apiFetch('/classes', {
+        method: 'POST',
+        body: JSON.stringify({ programId: expandedId, ...classForm }),
+        requireAuth: true,
+      });
+      const data = await apiFetch(`/programs/${expandedId}/classes`);
+      setProgramClasses(data.classes || []);
+      setClassForm({ startTime: '', endTime: '', name: '', room: '' });
+      setClassModal(false);
+    } catch (e: any) {
+      setError(e.message || (lang === 'fr' ? 'Erreur' : 'Error'));
+    } finally {
+      setSavingClass(false);
+    }
+  };
+
+  const deleteClass = async (classId: string) => {
+    if (!confirm(lang === 'fr' ? 'Supprimer ce créneau ?' : 'Delete this class?')) return;
+    try {
+      await apiFetch(`/classes/${classId}`, { method: 'DELETE', requireAuth: true });
+      setProgramClasses(prev => prev.filter(c => c.id !== classId));
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -507,6 +552,50 @@ export function Programs() {
                                     </table>
                                   </div>
                                 )}
+                                {/* Classes (time slots) for this program */}
+                                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                                      <Clock size={14} /> {lang === 'fr' ? 'Créneaux horaires' : 'Class times'}
+                                    </span>
+                                    <button type="button" onClick={() => { setClassForm({ startTime: '', endTime: '', name: '', room: '' }); setClassModal(true); }}
+                                      className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1">
+                                      <Plus size={12} /> {lang === 'fr' ? 'Ajouter un créneau' : 'Add class'}
+                                    </button>
+                                  </div>
+                                  {programClasses.length === 0 ? (
+                                    <p className="text-xs text-gray-400 py-2">{lang === 'fr' ? 'Aucun créneau. Les étudiants pourront s\'inscrire sans choisir d\'horaire.' : 'No classes. Students can register without selecting a time.'}</p>
+                                  ) : (
+                                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="border-b border-gray-200 dark:border-gray-700">
+                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Début' : 'Start'}</th>
+                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Fin' : 'End'}</th>
+                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Nom' : 'Name'}</th>
+                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Salle' : 'Room'}</th>
+                                            <th className="w-8 px-2 py-2" />
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {programClasses.map(cls => (
+                                            <tr key={cls.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{cls.startTime}</td>
+                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{cls.endTime}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{cls.name || '—'}</td>
+                                              <td className="px-3 py-2 text-gray-500">{cls.room || '—'}</td>
+                                              <td className="px-2 py-2">
+                                                <button type="button" onClick={() => deleteClass(cls.id)} className="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                                  <Trash2 size={12} />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </motion.div>
                           )}
@@ -520,6 +609,50 @@ export function Programs() {
           })}
         </div>
       )}
+
+      {/* ─── Add class modal (when a program is expanded) ─── */}
+      <AnimatePresence>
+        {classModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setClassModal(false)}>
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl p-6">
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{lang === 'fr' ? 'Nouveau créneau' : 'New class'}</h4>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Heure de début' : 'Start time'}</label>
+                  <input type="text" value={classForm.startTime} onChange={e => setClassForm(f => ({ ...f, startTime: e.target.value }))}
+                    placeholder="6:00" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Heure de fin' : 'End time'}</label>
+                  <input type="text" value={classForm.endTime} onChange={e => setClassForm(f => ({ ...f, endTime: e.target.value }))}
+                    placeholder="7:30" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Nom (optionnel)' : 'Name (optional)'}</label>
+                  <input type="text" value={classForm.name} onChange={e => setClassForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Morning class" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Salle (optionnel)' : 'Room (optional)'}</label>
+                  <input type="text" value={classForm.room} onChange={e => setClassForm(f => ({ ...f, room: e.target.value }))}
+                    placeholder="Room 101" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                </div>
+              </div>
+              {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+              <div className="flex gap-2 mt-4">
+                <button type="button" onClick={() => setClassModal(false)} className="flex-1 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Annuler' : 'Cancel'}</button>
+                <button type="button" onClick={saveClass} disabled={savingClass || !classForm.startTime || !classForm.endTime}
+                  className="flex-1 px-3 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                  {savingClass ? <Loader2 size={14} className="animate-spin" /> : null}{lang === 'fr' ? 'Ajouter' : 'Add'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Add/Edit Program Modal ─── */}
       <AnimatePresence>

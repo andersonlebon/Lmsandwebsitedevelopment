@@ -102,7 +102,7 @@ export function PortalPayments() {
     const pending = localStorage.getItem('btc_pending_payment');
     const pendingData = pending ? (() => { try { return JSON.parse(pending); } catch { return null; } })() : null;
     if (user && pendingData?.promotionId && pendingData?.courseId) {
-      apiFetch('/enrollments', { method: 'POST', body: JSON.stringify({ promotionId: pendingData.promotionId, programId: pendingData.courseId }), requireAuth: true })
+      apiFetch('/enrollments', { method: 'POST', body: JSON.stringify({ promotionId: pendingData.promotionId, programId: pendingData.courseId, classId: pendingData.classId || undefined }), requireAuth: true })
         .then(() => { /* enrollment created */ })
         .catch((e) => console.warn('Enrollment from pending promotion:', e.message));
     }
@@ -251,6 +251,7 @@ export function PortalPayments() {
       const result = await apiFetch('/payments', {
         method: 'POST',
         body: JSON.stringify(paymentData),
+        requireAuth: true,
       });
 
       setPayments(prev => [result.payment, ...prev]);
@@ -334,7 +335,7 @@ export function PortalPayments() {
                   <option value="">{lang === 'fr' ? '— Choisir un programme —' : '— Choose a program —'}</option>
                   {programs.map(p => (
                     <option key={p.id} value={p.id}>
-                      {DEPT_NAMES[p.department]?.[lang] || p.department} — {lang === 'fr' ? (p.nameFr || p.name) : p.name}
+                      {(lang === 'fr' ? p.departmentNameFr : p.departmentName) || DEPT_NAMES[p.department]?.[lang] || p.department} — {lang === 'fr' ? (p.nameFr || p.name) : p.name}
                     </option>
                   ))}
                 </select>

@@ -425,7 +425,7 @@ export function LearningActivities() {
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Programme' : 'Program'}</label>
                 <select value={activityForm.programId} onChange={e => setActivityForm(f => ({ ...f, programId: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
                   <option value="">—</option>
-                  {programs.map(p => <option key={p.id} value={p.id}>{lang === 'fr' && p.nameFr ? p.nameFr : p.name}</option>)}
+                  {programs.map(p => <option key={p.id} value={p.id}>{(lang === 'fr' ? p.departmentNameFr : p.departmentName) || p.department || ''} — {lang === 'fr' && p.nameFr ? p.nameFr : p.name}</option>)}
                 </select>
               </div>
               {(tab === 'assignment' || editingActivity?.requiresSubmission) && (

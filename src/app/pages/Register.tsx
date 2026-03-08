@@ -71,13 +71,15 @@ export function Register() {
   const [resent, setResent] = useState(false);
   const [form, setForm] = useState({
     fullName: '', email: '', password: '', phone: '', gender: '', address: '', dob: '', referral: '',
-    department: '', course: '', timeSlot: '', promotionId: '',
+    department: '', course: '', timeSlot: '', promotionId: '', classId: '',
   });
 
   // Dynamic programs and promotions from API
   const [programs, setPrograms] = useState<Program[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [programClasses, setProgramClasses] = useState<{ id: string; name: string; startTime: string; endTime: string; dayOfWeek?: number | null; room?: string }[]>([]);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
+  const [loadingClasses, setLoadingClasses] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -106,6 +108,20 @@ export function Register() {
       }
     })();
   }, []);
+
+  // Load classes when program is selected
+  useEffect(() => {
+    if (!form.course) {
+      setProgramClasses([]);
+      return;
+    }
+    setLoadingClasses(true);
+    fetch(`${apiBase}/classes?programId=${form.course}`)
+      .then(r => r.ok ? r.json() : { classes: [] })
+      .then(data => { setProgramClasses(data.classes || []); })
+      .catch(() => setProgramClasses([]))
+      .finally(() => setLoadingClasses(false));
+  }, [form.course]);
 
   const steps = [
     { label: t('reg.step1'), icon: User },
@@ -154,7 +170,10 @@ export function Register() {
   const canNext = () => {
     if (step === 0) return form.fullName && form.phone && form.gender && form.dob && form.email && form.password && form.password.length >= 6;
     if (step === 1) return (form.promotionId && form.course && selectedPromotion) || (form.department && form.course);
-    if (step === 2) return form.timeSlot;
+    if (step === 2) {
+      if (programClasses.length > 0) return !!form.classId;
+      return true;
+    }
     return true;
   };
 
@@ -180,14 +199,16 @@ export function Register() {
       }
 
       // Store pending payment info so the Payments page can create enrollment and pre-fill after login
+      const selectedClass = programClasses.find(c => c.id === form.classId);
       localStorage.setItem('btc_pending_payment', JSON.stringify({
         promotionId: form.promotionId || undefined,
         courseName: lang === 'fr' ? (selectedProgram?.nameFr || selectedProgram?.name) : selectedProgram?.name,
         courseId: selectedProgram?.id || form.course,
+        classId: form.classId || undefined,
         department: form.department || selectedPromotion?.department,
         departmentName: deptNames[form.department || selectedPromotion?.department || '']?.[lang],
         price: programFeeSummary,
-        timeSlot: timeSlots.find(s => s.id === form.timeSlot)?.label || '',
+        timeSlot: selectedClass ? `${selectedClass.startTime} – ${selectedClass.endTime}` : (timeSlots.find(s => s.id === form.timeSlot)?.label || ''),
         studentName: form.fullName,
         email: form.email,
       }));
@@ -268,7 +289,7 @@ export function Register() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">{t('reg.schedule')}</span>
-                <span className="text-gray-900 dark:text-white font-medium">{timeSlots.find(s => s.id === form.timeSlot)?.label}</span>
+                <span className="text-gray-900 dark:text-white font-medium">{programClasses.find(c => c.id === form.classId) ? `${programClasses.find(c => c.id === form.classId)!.startTime} – ${programClasses.find(c => c.id === form.classId)!.endTime}` : timeSlots.find(s => s.id === form.timeSlot)?.label || '—'}</span>
               </div>
               {/* Fee breakdown */}
               {(selectedProgram?.fees || []).length > 0 && (
@@ -512,7 +533,7 @@ export function Register() {
                               return (
                                 <button
                                   key={prom.id}
-                                  onClick={() => setForm(f => ({ ...f, promotionId: prom.id, course: '', department: '' }))}
+                                  onClick={() => setForm(f => ({ ...f, promotionId: prom.id, course: '', department: '', classId: '' }))}
                                   className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
                                 >
                                   <div className="flex items-center gap-3">
@@ -547,7 +568,7 @@ export function Register() {
                                   return (
                                     <button
                                       key={prog.id}
-                                      onClick={() => setForm(f => ({ ...f, course: prog.id, department: prog.department || '' }))}
+                                      onClick={() => setForm(f => ({ ...f, course: prog.id, department: prog.department || '', classId: '' }))}
                                       className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
                                     >
                                       <span className={`text-sm font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
@@ -598,13 +619,13 @@ export function Register() {
                                 const selected = form.course === program.id;
                                 const totalFees = (program.fees || []).reduce((s, f) => s + f.amount, 0);
                                 return (
-                                  <button key={program.id} onClick={() => setForm(f => ({ ...f, course: program.id }))}
+                                  <button key={program.id} onClick={() => setForm(f => ({ ...f, course: program.id, classId: '' }))}
                                     className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
                                     <div className="flex items-center gap-3">
                                       <div className={`w-3 h-3 rounded-full border-2 transition-all ${selected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`} />
                                       <div className="text-left">
                                         <span className={`text-sm font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                                          {lang === 'fr' ? (program.nameFr || program.name) : program.name}
+                                          {(lang === 'fr' ? program.departmentNameFr : program.departmentName) || program.department || ''}{program.departmentName || program.departmentNameFr || program.department ? ' — ' : ''}{lang === 'fr' ? (program.nameFr || program.name) : program.name}
                                         </span>
                                         {(program.fees || []).length > 0 && (
                                           <p className="text-xs text-gray-400 mt-0.5">
@@ -662,24 +683,35 @@ export function Register() {
             {step === 2 && (
               <div className="space-y-5">
                 <h3 className="text-lg text-gray-900 dark:text-white mb-1" style={{ fontFamily: 'Poppins', fontWeight: 600 }}>{t('reg.step3')}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{t('reg.schedule')}</p>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  {timeSlots.map(slot => {
-                    const selected = form.timeSlot === slot.id;
-                    return (
-                      <button key={slot.id} onClick={() => setForm(f => ({ ...f, timeSlot: slot.id }))}
-                        className={`flex items-center gap-4 p-5 rounded-2xl border transition-all ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold ${selected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
-                          <Clock size={20} />
-                        </div>
-                        <div className="text-left">
-                          <p className={`font-semibold ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>{slot.label}</p>
-                          <p className="text-xs text-gray-400">{lang === 'fr' ? 'Lundi – Vendredi' : 'Monday – Friday'}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Choisissez un créneau horaire pour ce programme.' : 'Select a class time for this program.'}</p>
+                {loadingClasses ? (
+                  <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-400" /></div>
+                ) : programClasses.length > 0 ? (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {programClasses.map(cls => {
+                      const selected = form.classId === cls.id;
+                      const label = cls.name ? `${cls.name} (${cls.startTime} – ${cls.endTime})` : `${cls.startTime} – ${cls.endTime}`;
+                      return (
+                        <button key={cls.id} onClick={() => setForm(f => ({ ...f, classId: cls.id }))}
+                          className={`flex items-center gap-4 p-5 rounded-2xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${selected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
+                            <Clock size={20} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className={`font-semibold text-sm truncate ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>{label}</p>
+                            {cls.room && <p className="text-xs text-gray-400">{cls.room}</p>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {lang === 'fr' ? 'Aucun créneau défini pour ce programme. Vous pouvez continuer.' : 'No class times defined for this program. You can still continue.'}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -696,7 +728,7 @@ export function Register() {
                     { label: t('reg.referral'), value: form.referral || '—' },
                     { label: t('reg.department'), value: deptNames[form.department]?.[lang] || '' },
                     { label: lang === 'fr' ? 'Programme' : 'Program', value: (lang === 'fr' ? (selectedProgram?.nameFr || selectedProgram?.name) : selectedProgram?.name) || '' },
-                    { label: t('reg.schedule'), value: timeSlots.find(s => s.id === form.timeSlot)?.label || '' },
+                    { label: t('reg.schedule'), value: programClasses.find(c => c.id === form.classId) ? `${programClasses.find(c => c.id === form.classId)!.startTime} – ${programClasses.find(c => c.id === form.classId)!.endTime}` : (timeSlots.find(s => s.id === form.timeSlot)?.label || '—') },
                     { label: lang === 'fr' ? 'Total Frais' : 'Total Fees', value: programFeeSummary },
                   ].map((item, i) => (
                     <div key={i} className="flex justify-between items-center py-1">

@@ -38,7 +38,7 @@ interface Promotion {
 export function Promotions() {
   const { lang } = useLanguage();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [programs, setPrograms] = useState<{ id: string; name: string; nameFr: string; department?: string }[]>([]);
+  const [programs, setPrograms] = useState<{ id: string; name: string; nameFr: string; department?: string; departmentName?: string; departmentNameFr?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editing, setEditing] = useState<Promotion | null>(null);
@@ -62,7 +62,7 @@ export function Promotions() {
           apiFetch('/programs'),
         ]);
         setPromotions(promRes.promotions || []);
-        setPrograms((progRes.programs || []).map((p: any) => ({ id: p.id, name: p.name, nameFr: p.nameFr || p.name, department: p.department })));
+        setPrograms((progRes.programs || []).map((p: any) => ({ id: p.id, name: p.name, nameFr: p.nameFr || p.name, department: p.department, departmentName: p.departmentName, departmentNameFr: p.departmentNameFr })));
       } catch (e) {
         console.error(e);
       } finally {
@@ -228,7 +228,7 @@ export function Promotions() {
                       return (
                         <label key={prog.id} className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={checked} onChange={() => toggleProgram(prog.id)} className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
-                          <span className="text-sm text-gray-800 dark:text-gray-200">{lang === 'fr' ? prog.nameFr || prog.name : prog.name}</span>
+                          <span className="text-sm text-gray-800 dark:text-gray-200">{(lang === 'fr' ? prog.departmentNameFr || prog.departmentName : prog.departmentName || prog.department) || ''} — {lang === 'fr' ? prog.nameFr || prog.name : prog.name}</span>
                         </label>
                       );
                     })}

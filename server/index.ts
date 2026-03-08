@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityItems, activitySubmissions, activitySubmissionResponses } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -319,12 +319,16 @@ function programRowToApi(row: any, departmentSlug?: string, resolvedFees?: any[]
   const fees = resolvedFees !== undefined ? resolvedFees : (row.fees ?? []);
   const duration = durationMonths ?? row.durationMonths ?? row.duration_months ?? 0;
   const totalAmountToPay = computeProgramTotalFees(fees, duration);
+  const departmentName = row.deptName ?? row.department?.name;
+  const departmentNameFr = row.deptNameFr ?? row.department?.nameFr;
   return {
     id: row.id,
     name: row.name,
     nameFr: row.nameFr ?? row.name_fr ?? '',
-    department: departmentSlug ?? row.department?.slug ?? row.department_slug,
+    department: departmentSlug ?? row.department?.slug ?? row.department_slug ?? row.slug,
     departmentId: row.departmentId ?? row.department_id,
+    departmentName: departmentName ?? undefined,
+    departmentNameFr: departmentNameFr ?? undefined,
     description: row.description ?? '',
     descriptionFr: row.descriptionFr ?? row.description_fr ?? '',
     status: row.status ?? 'active',
@@ -619,6 +623,112 @@ app.delete('/programs/:id', async (c) => {
   } catch (e) {
     console.error('Delete program error:', e);
     return c.json({ error: `Failed to delete program: ${(e as Error).message}` }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// PROGRAM CLASSES (time slots per program)
+// ──────────────────────────────────────
+function classRowToApi(row: any) {
+  return {
+    id: row.id,
+    programId: row.programId,
+    name: row.name ?? '',
+    startTime: row.startTime,
+    endTime: row.endTime,
+    dayOfWeek: row.dayOfWeek ?? null,
+    room: row.room ?? '',
+    sortOrder: row.sortOrder ?? 0,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+app.get('/classes', async (c) => {
+  try {
+    const programId = c.req.query('programId');
+    if (!programId) return c.json({ error: 'programId query required' }, 400);
+    const rows = await db.select().from(programClasses).where(eq(programClasses.programId, programId)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
+    return c.json({ classes: rows.map(classRowToApi) });
+  } catch (e) {
+    console.error('List classes error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.get('/programs/:id/classes', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const rows = await db.select().from(programClasses).where(eq(programClasses.programId, id)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
+    return c.json({ classes: rows.map(classRowToApi) });
+  } catch (e) {
+    console.error('List program classes error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/classes', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const programId = body.programId ?? body.program_id;
+    if (!programId) return c.json({ error: 'programId required' }, 400);
+    const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
+    if (!prog) return c.json({ error: 'Program not found' }, 404);
+    const [inserted] = await db.insert(programClasses).values({
+      programId,
+      name: body.name ?? '',
+      startTime: String(body.startTime ?? ''),
+      endTime: String(body.endTime ?? ''),
+      dayOfWeek: body.dayOfWeek != null ? Number(body.dayOfWeek) : null,
+      room: body.room ?? '',
+      sortOrder: body.sortOrder ?? body.sort_order ?? 0,
+    }).returning();
+    if (!inserted) return c.json({ error: 'Insert failed' }, 500);
+    return c.json({ class: classRowToApi(inserted) });
+  } catch (e) {
+    console.error('Create class error:', e);
+    return c.json({ error: `Failed to create class: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.put('/classes/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const [existing] = await db.select().from(programClasses).where(eq(programClasses.id, id));
+    if (!existing) return c.json({ error: 'Class not found' }, 404);
+    await db.update(programClasses).set({
+      name: body.name !== undefined ? body.name : existing.name,
+      startTime: body.startTime !== undefined ? String(body.startTime) : existing.startTime,
+      endTime: body.endTime !== undefined ? String(body.endTime) : existing.endTime,
+      dayOfWeek: body.dayOfWeek !== undefined ? (body.dayOfWeek == null ? null : Number(body.dayOfWeek)) : existing.dayOfWeek,
+      room: body.room !== undefined ? body.room : existing.room,
+      sortOrder: body.sortOrder ?? body.sort_order ?? existing.sortOrder,
+      updatedAt: new Date(),
+    }).where(eq(programClasses.id, id));
+    const [updated] = await db.select().from(programClasses).where(eq(programClasses.id, id));
+    return c.json({ class: classRowToApi(updated!) });
+  } catch (e) {
+    console.error('Update class error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.delete('/classes/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const result = await db.delete(programClasses).where(eq(programClasses.id, id)).returning({ id: programClasses.id });
+    if (result.length === 0) return c.json({ error: 'Class not found' }, 404);
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Delete class error:', e);
+    return c.json({ error: (e as Error).message }, 500);
   }
 });
 
@@ -1234,12 +1344,18 @@ app.post('/enrollments', async (c) => {
     if (promo.status !== 'active' && promo.status !== 'upcoming') return c.json({ error: 'Promotion is not open for enrollment' }, 400);
     const [link] = await db.select().from(promotionPrograms).where(and(eq(promotionPrograms.promotionId, promotionId), eq(promotionPrograms.programId, programId)));
     if (!link) return c.json({ error: 'Program is not part of this promotion' }, 400);
+    const classId = body.classId ?? body.class_id ?? null;
+    if (classId) {
+      const [cls] = await db.select().from(programClasses).where(and(eq(programClasses.id, classId), eq(programClasses.programId, programId)));
+      if (!cls) return c.json({ error: 'Class not found or does not belong to this program' }, 400);
+    }
     const existing = await db.select().from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId))).limit(1);
     if (existing.length > 0) return c.json({ error: 'Already enrolled in this promotion for this program' }, 400);
     const [inserted] = await db.insert(enrollments).values({
       studentId: auth.userId,
       programId,
       promotionId: promo.id,
+      classId: classId || undefined,
       status: 'pending', // admin approves when payment confirmed; progress is created on approval
     }).returning();
     return c.json({ enrollment: inserted });
@@ -1359,7 +1475,7 @@ app.get('/enrollments', async (c) => {
       .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
       .leftJoin(enrollmentProgress, eq(enrollments.id, enrollmentProgress.enrollmentId));
     const rows = statusFilter
-      ? await baseQuery.where(eq(enrollments.status, statusFilter)).orderBy(desc(enrollments.enrolledAt))
+      ? await baseQuery.where(eq(enrollments.status, statusFilter as 'pending' | 'active' | 'completed' | 'dropped' | 'suspended')).orderBy(desc(enrollments.enrolledAt))
       : await baseQuery.orderBy(desc(enrollments.enrolledAt));
     const programIds = [...new Set(rows.map((r) => r.programId).filter(Boolean))] as string[];
     const feesMap = await resolveProgramFees(programIds);
@@ -1423,7 +1539,7 @@ app.patch('/enrollments/:id', async (c) => {
       const [existingProgress] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, id));
       if (!existingProgress && updated.programId) {
         const [prog] = await db.select({ durationMonths: programs.durationMonths }).from(programs).where(eq(programs.id, updated.programId));
-        const fees = await resolveProgramFees([updated.programId]).then(m => m.get(updated.programId) ?? []);
+        const fees = await resolveProgramFees([updated.programId!]).then(m => m.get(updated.programId!) ?? []);
         const totalAmount = computeProgramTotalFees(fees, prog?.durationMonths ?? 0);
         await db.insert(enrollmentProgress).values({
           enrollmentId: id,
@@ -1951,11 +2067,224 @@ app.patch('/activity-submissions/:id', async (c) => {
 });
 
 // ──────────────────────────────────────
-// COURSES / PAYMENTS / CONTACT: stubs (no tables in Drizzle yet)
+// PAYMENTS: create, list, my, approve, reject (receipt upload to Supabase Storage)
+// ──────────────────────────────────────
+const PAYMENT_RECEIPTS_BUCKET = 'payment-receipts';
+
+/** Upload base64 data URL to Supabase Storage; returns public URL or null on failure. */
+async function uploadReceiptToStorage(userId: string, dataUrl: string, fileName: string): Promise<string | null> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  const contentType = match[1].trim() || 'image/jpeg';
+  const base64 = match[2];
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64, 'base64');
+  } catch {
+    return null;
+  }
+  const ext = (fileName && /\.(jpe?g|png|gif|webp)$/i.test(fileName)) ? fileName.replace(/.*\./i, '') : 'jpg';
+  const path = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data, error } = await supabaseAdmin.storage.from(PAYMENT_RECEIPTS_BUCKET).upload(path, buffer, {
+    contentType,
+    upsert: false,
+  });
+  if (error) {
+    console.error('Supabase storage upload error:', error);
+    return null;
+  }
+  const { data: urlData } = supabaseAdmin.storage.from(PAYMENT_RECEIPTS_BUCKET).getPublicUrl(data.path);
+  return urlData?.publicUrl ?? null;
+}
+
+function paymentRowToApi(row: any) {
+  return {
+    id: row.id,
+    studentId: row.studentId,
+    enrollmentId: row.enrollmentId,
+    programId: row.programId,
+    amount: Number(row.amount ?? 0),
+    currency: row.currency ?? 'USD',
+    method: row.method,
+    status: row.status,
+    receiptUrl: row.receiptUrl,
+    receiptImage: row.receiptUrl,
+    transactionRef: row.transactionRef,
+    feeId: row.feeId,
+    feeName: row.feeName,
+    description: row.description,
+    metadata: row.metadata ?? {},
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+app.get('/payments', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const rows = await db
+      .select({
+        id: payments.id,
+        studentId: payments.studentId,
+        enrollmentId: payments.enrollmentId,
+        programId: payments.programId,
+        amount: payments.amount,
+        currency: payments.currency,
+        method: payments.method,
+        status: payments.status,
+        receiptUrl: payments.receiptUrl,
+        transactionRef: payments.transactionRef,
+        feeId: payments.feeId,
+        feeName: payments.feeName,
+        description: payments.description,
+        metadata: payments.metadata,
+        createdAt: payments.createdAt,
+        updatedAt: payments.updatedAt,
+        rejectReason: payments.rejectReason,
+        studentName: profiles.name,
+        studentEmail: profiles.email,
+        programName: programs.name,
+        programNameFr: programs.nameFr,
+        deptSlug: departments.slug,
+      })
+      .from(payments)
+      .leftJoin(profiles, eq(payments.studentId, profiles.id))
+      .leftJoin(programs, eq(payments.programId, programs.id))
+      .leftJoin(departments, eq(programs.departmentId, departments.id))
+      .orderBy(desc(payments.createdAt));
+    const list = rows.map((r) => {
+      const base = paymentRowToApi(r);
+      return {
+        ...base,
+        studentName: r.studentName ?? '',
+        studentEmail: r.studentEmail ?? '',
+        programName: r.programName ?? '',
+        programNameFr: r.programNameFr ?? '',
+        department: r.deptSlug ?? '',
+        rejectionReason: r.rejectReason ?? '',
+        transactionId: r.transactionRef ?? '',
+      };
+    });
+    return c.json({ payments: list });
+  } catch (e) {
+    console.error('List payments error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.get('/payments/my', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const rows = await db.select().from(payments).where(eq(payments.studentId, auth.userId)).orderBy(desc(payments.createdAt));
+    return c.json({ payments: rows.map(paymentRowToApi) });
+  } catch (e) {
+    console.error('My payments error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/payments', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json();
+    const amount = Number(body.amount ?? 0);
+    const programId = body.programId ?? null;
+    const method = String(body.method ?? 'manual');
+    if (!amount || amount <= 0) return c.json({ error: 'Invalid amount' }, 400);
+
+    let receiptUrl: string | null = null;
+    if (method === 'manual' && body.receiptImage) {
+      receiptUrl = await uploadReceiptToStorage(auth.userId, body.receiptImage, body.receiptFileName || 'receipt.jpg');
+      if (!receiptUrl) return c.json({ error: 'Failed to upload receipt. Ensure Supabase bucket "payment-receipts" exists and is public.' }, 500);
+    }
+
+    const [inserted] = await db.insert(payments).values({
+      studentId: auth.userId,
+      enrollmentId: body.enrollmentId ?? null,
+      programId: programId || null,
+      amount: String(amount),
+      currency: String(body.currency ?? 'USD'),
+      method,
+      status: method === 'manual' ? 'pending_approval' : (body.status === 'completed' ? 'completed' : 'pending_approval'),
+      receiptUrl,
+      transactionRef: body.transactionId ?? body.transactionRef ?? null,
+      feeId: body.feeId ?? null,
+      feeName: body.feeName ?? null,
+      description: body.description ?? null,
+      metadata: typeof body.metadata === 'object' ? body.metadata : {},
+    }).returning();
+    if (!inserted) return c.json({ error: 'Failed to create payment' }, 500);
+    return c.json({ payment: paymentRowToApi(inserted) });
+  } catch (e) {
+    console.error('Create payment error:', e);
+    return c.json({ error: `Failed to create payment: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.put('/payments/:id/approve', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const [row] = await db.select().from(payments).where(eq(payments.id, id));
+    if (!row) return c.json({ error: 'Payment not found' }, 404);
+    if (row.status !== 'pending_approval') return c.json({ error: 'Payment is not pending approval' }, 400);
+    await db.update(payments).set({
+      status: 'completed',
+      approvedAt: new Date(),
+      approvedBy: admin.userId,
+      updatedAt: new Date(),
+    }).where(eq(payments.id, id));
+    const [updated] = await db.select().from(payments).where(eq(payments.id, id));
+    if (updated?.enrollmentId) {
+      const [existingProgress] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+      const currentAmount = existingProgress ? Number(existingProgress.amountPaid ?? 0) : 0;
+      const newAmount = currentAmount + Number(updated.amount);
+      if (existingProgress) {
+        await db.update(enrollmentProgress).set({ amountPaid: String(newAmount), updatedAt: new Date() }).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+      } else {
+        await db.insert(enrollmentProgress).values({ enrollmentId: updated.enrollmentId, amountPaid: String(newAmount), totalAmount: '0', updatedAt: new Date() });
+      }
+    }
+    return c.json({ payment: paymentRowToApi(updated!) });
+  } catch (e) {
+    console.error('Approve payment error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.put('/payments/:id/reject', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const [row] = await db.select().from(payments).where(eq(payments.id, id));
+    if (!row) return c.json({ error: 'Payment not found' }, 404);
+    if (row.status !== 'pending_approval') return c.json({ error: 'Payment is not pending approval' }, 400);
+    await db.update(payments).set({
+      status: 'rejected',
+      rejectedAt: new Date(),
+      rejectReason: body.reason ?? body.rejectReason ?? null,
+      updatedAt: new Date(),
+    }).where(eq(payments.id, id));
+    const [updated] = await db.select().from(payments).where(eq(payments.id, id));
+    return c.json({ payment: paymentRowToApi(updated!) });
+  } catch (e) {
+    console.error('Reject payment error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// COURSES / CONTACT
 // ──────────────────────────────────────
 app.get('/courses', async (c) => c.json({ courses: [] }));
-app.get('/payments', async (c) => c.json({ payments: [] }));
-app.get('/payments/my', async (c) => c.json({ payments: [] }));
 app.post('/contact', async (c) => {
   try {
     await c.req.json().catch(() => ({}));

@@ -53,22 +53,24 @@ export function Financing() {
 
   const loadPayments = async () => {
     try {
-      const data = await apiFetch('/payments');
-      // Normalize Postgres data to flat fields for display
-      const normalized = (data.payments || []).map((p: any) => ({
+      const data = await apiFetch('/payments', { requireAuth: true });
+      const list = data.payments || [];
+      const normalized = list.map((p: any) => ({
         ...p,
-        studentName: p.student?.name || '',
-        studentEmail: p.student?.email || '',
-        programName: p.programs?.name || '',
-        programNameFr: p.programs?.name_fr || '',
-        department: p.programs?.departments?.slug || '',
-        createdAt: p.created_at || p.createdAt,
-        feeName: p.fee_item_name || '',
-        method: p.payment_mode || '',
-        methodLabel: (p.payment_mode || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
-        rejectionReason: p.rejection_reason || '',
-        receiptImage: p.receipt_url || '',
-        transactionId: p.transaction_ref || '',
+        studentName: p.studentName ?? p.student?.name ?? '',
+        studentEmail: p.studentEmail ?? p.student?.email ?? '',
+        programName: p.programName ?? p.programs?.name ?? '',
+        programNameFr: p.programNameFr ?? p.programs?.name_fr ?? '',
+        department: p.department ?? p.programs?.departments?.slug ?? '',
+        createdAt: p.createdAt ?? p.created_at,
+        feeName: p.feeName ?? p.fee_item_name ?? '',
+        method: p.method ?? p.payment_mode ?? '',
+        methodLabel: (p.method || p.payment_mode || '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        rejectionReason: p.rejectionReason ?? p.rejectReason ?? p.rejection_reason ?? '',
+        receiptImage: p.receiptImage ?? p.receiptUrl ?? p.receipt_url ?? '',
+        transactionId: p.transactionId ?? p.transactionRef ?? p.transaction_ref ?? '',
       }));
       setPayments(normalized);
     } catch (e) {
@@ -202,6 +204,14 @@ export function Financing() {
         ))}
       </div>
 
+      {actionError && (
+        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-red-700 dark:text-red-300 flex items-center gap-2"><AlertCircle size={16} /> {actionError}</p>
+          <button onClick={() => setActionError('')} className="p-1 rounded text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"><X size={16} /></button>
+        </motion.div>
+      )}
+
       {/* Pending Approval Banner */}
       {pending.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -329,13 +339,18 @@ export function Financing() {
         </div>
       </div>
 
-      {/* Transactions Table */}
+      {/* Review payments — table with approve/decline */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <h3 className="text-gray-900 dark:text-white font-semibold" style={{ fontFamily: 'Poppins' }}>
-              {lang === 'fr' ? 'Historique des Transactions' : 'Transaction History'}
-            </h3>
+            <div>
+              <h3 className="text-gray-900 dark:text-white font-semibold" style={{ fontFamily: 'Poppins' }}>
+                {lang === 'fr' ? 'Réviser les paiements' : 'Review Payments'}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {lang === 'fr' ? 'Consulter les détails, voir le reçu, approuver ou rejeter (avec une note obligatoire).' : 'View details and receipt, approve or decline (note required when declining).'}
+              </p>
+            </div>
             <div className="flex gap-2 w-full sm:w-auto flex-wrap">
               <div className="relative flex-1 sm:flex-none">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -450,7 +465,7 @@ export function Financing() {
         )}
       </div>
 
-      {/* Reject Modal */}
+      {/* Reject Modal — note required */}
       <AnimatePresence>
         {rejectModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -461,23 +476,33 @@ export function Financing() {
               <h4 className="text-lg text-gray-900 dark:text-white mb-2" style={{ fontFamily: 'Poppins', fontWeight: 600 }}>
                 {lang === 'fr' ? 'Rejeter le paiement' : 'Reject Payment'}
               </h4>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 {lang === 'fr'
-                  ? 'Veuillez fournir une raison pour le rejet.'
-                  : 'Please provide a reason for the rejection.'}
+                  ? 'Veuillez indiquer la raison du rejet (obligatoire). L\'étudiant pourra la consulter.'
+                  : 'Please provide a reason for the rejection (required). The student will be able to see it.'}
               </p>
               <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-red-500 h-24 resize-none"
-                placeholder={lang === 'fr' ? 'Raison du rejet...' : 'Rejection reason...'} />
+                className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-red-500 h-28 resize-none placeholder:text-gray-400"
+                placeholder={lang === 'fr' ? 'Ex: reçu illisible, montant incorrect...' : 'e.g. receipt unclear, wrong amount...'}
+                required />
               {actionError && (
                 <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertCircle size={12} /> {actionError}</p>
               )}
               <div className="flex gap-2 mt-4">
-                <button onClick={() => setRejectModal(null)}
+                <button onClick={() => { setRejectModal(null); setRejectReason(''); setActionError(''); }}
                   className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                   {lang === 'fr' ? 'Annuler' : 'Cancel'}
                 </button>
-                <button onClick={() => handleReject(rejectModal)} disabled={rejecting === rejectModal}
+                <button
+                  onClick={() => {
+                    if (!rejectReason.trim()) {
+                      setActionError(lang === 'fr' ? 'Veuillez saisir une raison.' : 'Please enter a reason.');
+                      return;
+                    }
+                    setActionError('');
+                    handleReject(rejectModal);
+                  }}
+                  disabled={rejecting === rejectModal}
                   className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                   {rejecting === rejectModal ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
                   {lang === 'fr' ? 'Rejeter' : 'Reject'}

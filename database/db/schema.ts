@@ -59,6 +59,8 @@ export const activityItemTypeEnum = pgEnum('activity_item_type', [
 ]);
 export const submissionStatusEnum = pgEnum('submission_status', ['draft', 'submitted', 'graded']);
 
+export const paymentStatusEnum = pgEnum('payment_status', ['pending_approval', 'completed', 'rejected']);
+
 // ─── Departments ────────────────────────────────────────────────────────
 export const departments = pgTable('departments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -142,6 +144,20 @@ export const programFees = pgTable('program_fees', {
   updatedAt: timestamptz('updated_at'),
 });
 
+// ─── Program classes (time slots per program, e.g. "6:00 to 7:30")
+export const programClasses = pgTable('program_classes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  programId: uuid('program_id').notNull(),
+  name: text('name').default(''),
+  startTime: text('start_time').notNull(),
+  endTime: text('end_time').notNull(),
+  dayOfWeek: integer('day_of_week'),
+  room: text('room').default(''),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
 // ─── Programs ───────────────────────────────────────────────────────────
 export const programs = pgTable('programs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -192,12 +208,13 @@ export const promotionPrograms = pgTable('promotion_programs', {
   updatedAt: timestamptz('updated_at'),
 });
 
-// ─── Enrollments (student in a promotion → program) ─────────────────────
+// ─── Enrollments (student in a promotion → program, optional class) ─────
 export const enrollments = pgTable('enrollments', {
   id: uuid('id').primaryKey().defaultRandom(),
   studentId: uuid('student_id').notNull(),
   programId: uuid('program_id'),
   promotionId: uuid('promotion_id'),
+  classId: uuid('class_id'),
   status: enrollmentStatusEnum('status').notNull().default('pending'),
   enrolledAt: timestamptz('enrolled_at').defaultNow(),
   progress: integer('progress').default(0),
@@ -279,6 +296,30 @@ export const activitySubmissionResponses = pgTable('activity_submission_response
   updatedAt: timestamptz('updated_at'),
 });
 
+// ─── Payments (student payments; manual = upload receipt, status pending_approval until admin approves)
+export const payments = pgTable('payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull(),
+  enrollmentId: uuid('enrollment_id'),
+  programId: uuid('program_id'),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  currency: text('currency').notNull().default('USD'),
+  method: text('method').notNull(), // manual | airtel | orange | mobile | visa
+  status: paymentStatusEnum('status').notNull().default('pending_approval'),
+  receiptUrl: text('receipt_url'),
+  transactionRef: text('transaction_ref'),
+  feeId: text('fee_id'),
+  feeName: text('fee_name'),
+  description: text('description'),
+  metadata: jsonb('metadata').default({}),
+  approvedAt: timestamptz('approved_at'),
+  approvedBy: uuid('approved_by'),
+  rejectedAt: timestamptz('rejected_at'),
+  rejectReason: text('reject_reason'),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
 // ─── Enrollment progress (per-enrollment: payment, learning, exercises, assessment, assignments)
 export const enrollmentProgress = pgTable('enrollment_progress', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -316,7 +357,12 @@ export const programsRelations = relations(programs, ({ one, many }) => ({
   }),
   promotionPrograms: many(promotionPrograms),
   programFees: many(programFees),
+  programClasses: many(programClasses),
   learningActivities: many(learningActivities),
+}));
+
+export const programClassesRelations = relations(programClasses, ({ one }) => ({
+  program: one(programs, { fields: [programClasses.programId], references: [programs.id] }),
 }));
 
 export const learningActivitiesRelations = relations(learningActivities, ({ one, many }) => ({
@@ -363,6 +409,7 @@ export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
   student: one(profiles, { fields: [enrollments.studentId], references: [profiles.id] }),
   program: one(programs, { fields: [enrollments.programId], references: [programs.id] }),
   promotion: one(promotions, { fields: [enrollments.promotionId], references: [promotions.id] }),
+  class: one(programClasses, { fields: [enrollments.classId], references: [programClasses.id] }),
   progressRecord: one(enrollmentProgress),
   activitySubmissions: many(activitySubmissions),
 }));
