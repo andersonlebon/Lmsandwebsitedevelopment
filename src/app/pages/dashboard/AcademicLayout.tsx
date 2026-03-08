@@ -1,5 +1,5 @@
 import { Outlet, NavLink, Navigate } from 'react-router';
-import { Building2, ClipboardList, CalendarDays, Tag, UserCheck } from 'lucide-react';
+import { Building2, ClipboardList, CalendarDays, Tag, UserCheck, BookOpen } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
 const tabs = [
@@ -8,6 +8,7 @@ const tabs = [
   { to: 'promotions', labelKey: 'common.promotions', icon: CalendarDays },
   { to: 'fee-structures', labelKey: 'common.feeStructures', icon: Tag },
   { to: 'enrollments', labelKey: 'common.enrollments', icon: UserCheck },
+  { to: 'learning', labelKey: 'common.learning', icon: BookOpen },
 ];
 
 export function AcademicLayout() {

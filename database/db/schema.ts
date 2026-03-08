@@ -52,6 +52,13 @@ export const assignmentStatusEnum = pgEnum('assignment_status', [
   'graded',
 ]);
 
+export const activityTypeEnum = pgEnum('activity_type', ['exercise', 'assessment', 'assignment']);
+export const activityItemTypeEnum = pgEnum('activity_item_type', [
+  'multiple_choice', 'theoretical', 'video', 'audio', 'listening', 'reading',
+  'true_false', 'matching', 'fill_blank',
+]);
+export const submissionStatusEnum = pgEnum('submission_status', ['draft', 'submitted', 'graded']);
+
 // ─── Departments ────────────────────────────────────────────────────────
 export const departments = pgTable('departments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -199,6 +206,79 @@ export const enrollments = pgTable('enrollments', {
   updatedAt: timestamptz('updated_at'),
 });
 
+// ─── Learning activities (exercises, assessments, assignments) ─────────────
+export const learningActivities = pgTable('learning_activities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: activityTypeEnum('type').notNull(),
+  title: text('title').notNull(),
+  titleFr: text('title_fr').default(''),
+  description: text('description').default(''),
+  descriptionFr: text('description_fr').default(''),
+  instructions: text('instructions').default(''),
+  instructionsFr: text('instructions_fr').default(''),
+  programId: uuid('program_id'),
+  createdBy: uuid('created_by'),
+  requiresSubmission: boolean('requires_submission').default(false),
+  maxScore: numeric('max_score', { precision: 8, scale: 2 }).default('0'),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
+export const activityPromotions = pgTable('activity_promotions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  activityId: uuid('activity_id').notNull(),
+  promotionId: uuid('promotion_id').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  assignedAt: timestamptz('assigned_at').defaultNow(),
+  assignedBy: uuid('assigned_by'),
+}, (t) => ({
+  activityPromoUnique: unique().on(t.activityId, t.promotionId),
+}));
+
+export const activityItems = pgTable('activity_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  activityId: uuid('activity_id').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  itemType: activityItemTypeEnum('item_type').notNull(),
+  questionText: text('question_text').notNull(),
+  questionTextFr: text('question_text_fr').default(''),
+  options: jsonb('options').default([]),
+  correctAnswer: jsonb('correct_answer'),
+  mediaUrl: text('media_url'),
+  mediaType: text('media_type'),
+  maxScore: numeric('max_score', { precision: 6, scale: 2 }).default('1'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
+export const activitySubmissions = pgTable('activity_submissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  enrollmentId: uuid('enrollment_id').notNull(),
+  activityId: uuid('activity_id').notNull(),
+  status: submissionStatusEnum('status').notNull().default('draft'),
+  submittedAt: timestamptz('submitted_at'),
+  score: numeric('score', { precision: 8, scale: 2 }),
+  maxScore: numeric('max_score', { precision: 8, scale: 2 }),
+  feedback: text('feedback'),
+  gradedBy: uuid('graded_by'),
+  gradedAt: timestamptz('graded_at'),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
+export const activitySubmissionResponses = pgTable('activity_submission_responses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  submissionId: uuid('submission_id').notNull(),
+  activityItemId: uuid('activity_item_id').notNull(),
+  response: jsonb('response'),
+  score: numeric('score', { precision: 6, scale: 2 }),
+  feedback: text('feedback'),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
 // ─── Enrollment progress (per-enrollment: payment, learning, exercises, assessment, assignments)
 export const enrollmentProgress = pgTable('enrollment_progress', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -236,6 +316,36 @@ export const programsRelations = relations(programs, ({ one, many }) => ({
   }),
   promotionPrograms: many(promotionPrograms),
   programFees: many(programFees),
+  learningActivities: many(learningActivities),
+}));
+
+export const learningActivitiesRelations = relations(learningActivities, ({ one, many }) => ({
+  program: one(programs, { fields: [learningActivities.programId], references: [programs.id] }),
+  creator: one(profiles, { fields: [learningActivities.createdBy], references: [profiles.id] }),
+  activityPromotions: many(activityPromotions),
+  items: many(activityItems),
+  submissions: many(activitySubmissions),
+}));
+
+export const activityPromotionsRelations = relations(activityPromotions, ({ one }) => ({
+  activity: one(learningActivities, { fields: [activityPromotions.activityId], references: [learningActivities.id] }),
+  promotion: one(promotions, { fields: [activityPromotions.promotionId], references: [promotions.id] }),
+}));
+
+export const activityItemsRelations = relations(activityItems, ({ one }) => ({
+  activity: one(learningActivities, { fields: [activityItems.activityId], references: [learningActivities.id] }),
+}));
+
+export const activitySubmissionsRelations = relations(activitySubmissions, ({ one, many }) => ({
+  enrollment: one(enrollments, { fields: [activitySubmissions.enrollmentId], references: [enrollments.id] }),
+  activity: one(learningActivities, { fields: [activitySubmissions.activityId], references: [learningActivities.id] }),
+  grader: one(profiles, { fields: [activitySubmissions.gradedBy], references: [profiles.id] }),
+  responses: many(activitySubmissionResponses),
+}));
+
+export const activitySubmissionResponsesRelations = relations(activitySubmissionResponses, ({ one }) => ({
+  submission: one(activitySubmissions, { fields: [activitySubmissionResponses.submissionId], references: [activitySubmissions.id] }),
+  activityItem: one(activityItems, { fields: [activitySubmissionResponses.activityItemId], references: [activityItems.id] }),
 }));
 
 export const promotionProgramsRelations = relations(promotionPrograms, ({ one }) => ({
@@ -246,10 +356,7 @@ export const promotionProgramsRelations = relations(promotionPrograms, ({ one })
 export const promotionsRelations = relations(promotions, ({ many }) => ({
   promotionPrograms: many(promotionPrograms),
   enrollments: many(enrollments),
-}));
-
-export const enrollmentProgressRelations = relations(enrollmentProgress, ({ one }) => ({
-  enrollment: one(enrollments, { fields: [enrollmentProgress.enrollmentId], references: [enrollments.id] }),
+  activityPromotions: many(activityPromotions),
 }));
 
 export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
@@ -257,4 +364,10 @@ export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
   program: one(programs, { fields: [enrollments.programId], references: [programs.id] }),
   promotion: one(promotions, { fields: [enrollments.promotionId], references: [promotions.id] }),
   progressRecord: one(enrollmentProgress),
+  activitySubmissions: many(activitySubmissions),
 }));
+
+export const enrollmentProgressRelations = relations(enrollmentProgress, ({ one }) => ({
+  enrollment: one(enrollments, { fields: [enrollmentProgress.enrollmentId], references: [enrollments.id] }),
+}));
+

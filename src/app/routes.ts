@@ -28,6 +28,7 @@ import { Promotions } from './pages/dashboard/Promotions';
 import { FeeStructures } from './pages/dashboard/FeeStructures';
 import { ExchangeRates } from './pages/dashboard/ExchangeRates';
 import { Enrollments } from './pages/dashboard/Enrollments';
+import { LearningActivities } from './pages/dashboard/LearningActivities';
 import { PeopleLayout, PeopleRedirect } from './pages/dashboard/PeopleLayout';
 import { AcademicLayout, AcademicRedirect } from './pages/dashboard/AcademicLayout';
 import { FinanceLayout, FinanceRedirect } from './pages/dashboard/FinanceLayout';
@@ -115,6 +116,7 @@ export const router = createBrowserRouter([
           { path: 'promotions', Component: Promotions },
           { path: 'fee-structures', Component: FeeStructures },
           { path: 'enrollments', Component: Enrollments },
+          { path: 'learning', Component: LearningActivities },
         ],
       },
       {

@@ -16,6 +16,7 @@ const DASHBOARD_CRUMBS: Record<string, Crumb[]> = {
   'academic/promotions': [{ label: 'Academic', href: '/dashboard/academic/promotions' }, { label: 'Promotions' }],
   'academic/fee-structures': [{ label: 'Academic', href: '/dashboard/academic/fee-structures' }, { label: 'Fee Structures' }],
   'academic/enrollments': [{ label: 'Academic', href: '/dashboard/academic/enrollments' }, { label: 'Enrollments' }],
+  'academic/learning': [{ label: 'Academic', href: '/dashboard/academic/learning' }, { label: 'Exercises & Assessments' }],
   'finance': [{ label: 'Finance', href: '/dashboard/finance/exchange-rates' }, { label: 'Exchange Rates' }],
   'finance/exchange-rates': [{ label: 'Finance', href: '/dashboard/finance/exchange-rates' }, { label: 'Exchange Rates' }],
   'finance/financing': [{ label: 'Finance', href: '/dashboard/finance/financing' }, { label: 'Financing' }],
