@@ -190,6 +190,10 @@ app.get('/me', async (c) => {
         phone: profiles.phone,
         avatarUrl: profiles.avatarUrl,
         emailConfirmed: profiles.emailConfirmed,
+        rollNumber: profiles.rollNumber,
+        dateOfBirth: profiles.dateOfBirth,
+        gender: profiles.gender,
+        address: profiles.address,
         createdAt: profiles.createdAt,
         slug: departments.slug,
       })
@@ -242,12 +246,51 @@ app.get('/me', async (c) => {
       phone: profileRow.phone ?? '',
       avatar_url: profileRow.avatarUrl ?? '',
       email_confirmed: profileRow.emailConfirmed,
+      roll_number: profileRow.rollNumber ?? undefined,
+      date_of_birth: profileRow.dateOfBirth ?? undefined,
+      gender: profileRow.gender ?? undefined,
+      address: profileRow.address ?? '',
       created_at: profileRow.createdAt,
     };
     return c.json({ profile });
   } catch (e) {
     console.error('Get /me error:', e);
     return c.json({ error: `Failed to get profile: ${(e as Error).message}` }, 500);
+  }
+});
+
+// PATCH /me — update own profile (only allowed fields: name, date_of_birth, phone, address, gender). Roll number, email, id, etc. are not editable.
+app.patch('/me', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json().catch(() => ({}));
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.name != null && typeof body.name === 'string') updates.name = body.name.trim() || undefined;
+    if (body.date_of_birth != null) updates.dateOfBirth = body.date_of_birth === '' ? null : body.date_of_birth;
+    if (body.dateOfBirth != null) updates.dateOfBirth = body.dateOfBirth === '' ? null : body.dateOfBirth;
+    if (body.phone != null) updates.phone = typeof body.phone === 'string' ? body.phone : undefined;
+    if (body.address != null) updates.address = typeof body.address === 'string' ? body.address : undefined;
+    if (body.gender != null) updates.gender = body.gender === '' ? null : body.gender;
+    if (Object.keys(updates).length <= 1) return c.json({ profile: (await db.select().from(profiles).where(eq(profiles.id, auth.userId)))[0] });
+    await db.update(profiles).set(updates as any).where(eq(profiles.id, auth.userId));
+    const [updated] = await db.select().from(profiles).where(eq(profiles.id, auth.userId));
+    return c.json({
+      profile: updated ? {
+        id: updated.id,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+        phone: updated.phone ?? '',
+        roll_number: updated.rollNumber ?? undefined,
+        date_of_birth: updated.dateOfBirth ?? undefined,
+        gender: updated.gender ?? undefined,
+        address: updated.address ?? '',
+      } : null,
+    });
+  } catch (e) {
+    console.error('Patch /me error:', e);
+    return c.json({ error: (e as Error).message }, 500);
   }
 });
 
@@ -1325,50 +1368,24 @@ app.delete('/promotions/:id', async (c) => {
 });
 
 // ──────────────────────────────────────
-// ENROLLMENTS: create (student enrolls in promotion) + roll number generation
+// ENROLLMENTS: create (student enrolls in promotion) + student roll number on profile (first enrollment only)
 // ──────────────────────────────────────
-/** Generate unique roll number: DEPT-PROG-PROMO-CLASS-SEQ (e.g. ENG-L1-2025Q1-0600-001) */
-async function generateRollNumber(programId: string, promotionId: string, classId: string | null): Promise<string> {
+/** Generate unique student roll number: DEPT-YEAR-SEQ (e.g. ENG-2025-001). Assigned once per student on first enrollment. */
+async function generateStudentRollNumber(programId: string): Promise<string> {
   const [progRow] = await db
-    .select({
-      programName: programs.name,
-      deptSlug: departments.slug,
-    })
+    .select({ deptSlug: departments.slug })
     .from(programs)
     .leftJoin(departments, eq(programs.departmentId, departments.id))
     .where(eq(programs.id, programId));
-  const [promoRow] = await db.select({ name: promotions.name }).from(promotions).where(eq(promotions.id, promotionId));
-  let classCode = '0';
-  if (classId) {
-    const [clsRow] = await db.select({ startTime: programClasses.startTime }).from(programClasses).where(eq(programClasses.id, classId));
-    if (clsRow?.startTime) {
-      classCode = String(clsRow.startTime).replace(/:/g, '').replace(/\D/g, '').slice(0, 4) || '0';
-      if (classCode.length < 2) classCode = classCode.padStart(2, '0');
-    }
-  }
   const deptCode = (progRow?.deptSlug ?? 'GEN').toUpperCase().replace(/\W/g, '').slice(0, 4) || 'GEN';
-  const progName = progRow?.programName ?? 'P';
-  const progCode = progName
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-    .replace(/\W/g, '')
-    .slice(0, 3) || 'P';
-  const promoName = promoRow?.name ?? '';
-  const promoCode = promoName.replace(/\W/g, '').slice(0, 6).toUpperCase() || 'PROMO';
-  const sameGroup = classId
-    ? and(eq(enrollments.programId, programId), eq(enrollments.promotionId, promotionId), eq(enrollments.classId, classId), isNotNull(enrollments.rollNumber))
-    : and(eq(enrollments.programId, programId), eq(enrollments.promotionId, promotionId), isNull(enrollments.classId), isNotNull(enrollments.rollNumber));
+  const year = new Date().getFullYear();
+  const prefix = `${deptCode}-${year}-`;
   const countResult = await db
     .select({ count: sql<number>`count(*)::int` })
-    .from(enrollments)
-    .where(sameGroup);
+    .from(profiles)
+    .where(sql`${profiles.rollNumber} like ${prefix + '%'}`);
   const seq = (countResult[0]?.count ?? 0) + 1;
-  const seqStr = String(seq).padStart(3, '0');
-  return `${deptCode}-${progCode}-${promoCode}-${classCode}-${seqStr}`;
+  return `${prefix}${String(seq).padStart(3, '0')}`;
 }
 
 app.post('/enrollments', async (c) => {
@@ -1395,15 +1412,22 @@ app.post('/enrollments', async (c) => {
     }
     const existing = await db.select().from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId))).limit(1);
     if (existing.length > 0) return c.json({ error: 'Already enrolled in this promotion for this program' }, 400);
-    const rollNumber = await generateRollNumber(programId, promotionId, classId);
     const [inserted] = await db.insert(enrollments).values({
       studentId: auth.userId,
       programId,
       promotionId: promo.id,
       classId: classId || undefined,
-      rollNumber,
       status: 'pending', // admin approves when payment confirmed; progress is created on approval
     }).returning();
+    const [profileRow] = await db.select({ rollNumber: profiles.rollNumber }).from(profiles).where(eq(profiles.id, auth.userId));
+    if (inserted && profileRow && !profileRow.rollNumber) {
+      try {
+        const rollNumber = await generateStudentRollNumber(programId);
+        await db.update(profiles).set({ rollNumber, updatedAt: new Date() }).where(eq(profiles.id, auth.userId));
+      } catch (err) {
+        console.error('Assign roll number to student', auth.userId, err);
+      }
+    }
     return c.json({ enrollment: inserted });
   } catch (e) {
     console.error('Create enrollment error:', e);
@@ -1411,28 +1435,34 @@ app.post('/enrollments', async (c) => {
   }
 });
 
-/** Backfill roll numbers for enrollments that don't have one (admin only). */
+/** Backfill roll numbers for students (profiles) who have enrollments but no roll number (admin only). */
 app.post('/enrollments/backfill-roll-numbers', async (c) => {
   try {
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
-    const withoutRoll = await db
-      .select({ id: enrollments.id, programId: enrollments.programId, promotionId: enrollments.promotionId, classId: enrollments.classId })
+    const enrollmentsWithStudent = await db
+      .select({ studentId: enrollments.studentId, programId: enrollments.programId, enrolledAt: enrollments.enrolledAt })
       .from(enrollments)
-      .where(isNull(enrollments.rollNumber))
-      .orderBy(asc(enrollments.programId), asc(enrollments.promotionId), asc(enrollments.classId), asc(enrollments.createdAt));
-    let updated = 0;
-    for (const en of withoutRoll) {
-      if (!en.programId || !en.promotionId) continue;
-      try {
-        const rollNumber = await generateRollNumber(en.programId, en.promotionId, en.classId ?? null);
-        await db.update(enrollments).set({ rollNumber, updatedAt: new Date() }).where(eq(enrollments.id, en.id));
-        updated++;
-      } catch (err) {
-        console.error('Backfill roll number for enrollment', en.id, err);
+      .innerJoin(profiles, eq(enrollments.studentId, profiles.id))
+      .where(isNull(profiles.rollNumber))
+      .orderBy(asc(enrollments.studentId), asc(enrollments.enrolledAt));
+    const byStudent = new Map<string, string>();
+    for (const row of enrollmentsWithStudent) {
+      if (!byStudent.has(row.studentId) && row.programId) {
+        byStudent.set(row.studentId, row.programId);
       }
     }
-    return c.json({ updated, total: withoutRoll.length });
+    let updated = 0;
+    for (const [studentId, programId] of byStudent) {
+      try {
+        const rollNumber = await generateStudentRollNumber(programId);
+        await db.update(profiles).set({ rollNumber, updatedAt: new Date() }).where(eq(profiles.id, studentId));
+        updated++;
+      } catch (err) {
+        console.error('Backfill roll number for student', studentId, err);
+      }
+    }
+    return c.json({ updated, total: byStudent.size });
   } catch (e) {
     console.error('Backfill roll numbers error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -1448,12 +1478,14 @@ app.get('/enrollments/my', async (c) => {
         id: enrollments.id,
         programId: enrollments.programId,
         promotionId: enrollments.promotionId,
-        rollNumber: enrollments.rollNumber,
+        rollNumber: profiles.rollNumber,
         status: enrollments.status,
         enrolledAt: enrollments.enrolledAt,
         progName: programs.name,
         progNameFr: programs.nameFr,
         durationMonths: programs.durationMonths,
+        departmentName: departments.name,
+        departmentNameFr: departments.nameFr,
         promoName: promotions.name,
         promoNameFr: promotions.nameFr,
         startDate: promotions.startDate,
@@ -1469,7 +1501,9 @@ app.get('/enrollments/my', async (c) => {
         assignmentScore: enrollmentProgress.assignmentScore,
       })
       .from(enrollments)
+      .leftJoin(profiles, eq(enrollments.studentId, profiles.id))
       .leftJoin(programs, eq(enrollments.programId, programs.id))
+      .leftJoin(departments, eq(programs.departmentId, departments.id))
       .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
       .leftJoin(enrollmentProgress, eq(enrollments.id, enrollmentProgress.enrollmentId))
       .where(eq(enrollments.studentId, auth.userId));
@@ -1487,6 +1521,8 @@ app.get('/enrollments/my', async (c) => {
         enrolledAt: r.enrolledAt,
         progName: r.progName,
         progNameFr: r.progNameFr,
+        departmentName: r.departmentName ?? undefined,
+        departmentNameFr: r.departmentNameFr ?? undefined,
         promoName: r.promoName,
         promoNameFr: r.promoNameFr,
         startDate: r.startDate,
@@ -1512,19 +1548,23 @@ app.get('/enrollments/my', async (c) => {
   }
 });
 
-// GET /enrollments — admin: list all enrollments, optional ?status=pending
+// GET /enrollments — admin: list all enrollments, optional ?status= & ?promotionId= & ?programId= & ?departmentId=
 app.get('/enrollments', async (c) => {
   try {
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
     const statusFilter = c.req.query('status');
+    const promotionIdFilter = c.req.query('promotionId');
+    const programIdFilter = c.req.query('programId');
+    const departmentIdFilter = c.req.query('departmentId');
+    const departmentSlugFilter = c.req.query('department');
     const baseQuery = db
       .select({
         id: enrollments.id,
         studentId: enrollments.studentId,
         programId: enrollments.programId,
         promotionId: enrollments.promotionId,
-        rollNumber: enrollments.rollNumber,
+        rollNumber: profiles.rollNumber,
         status: enrollments.status,
         enrolledAt: enrollments.enrolledAt,
         studentName: profiles.name,
@@ -1550,9 +1590,17 @@ app.get('/enrollments', async (c) => {
       .leftJoin(profiles, eq(enrollments.studentId, profiles.id))
       .leftJoin(programs, eq(enrollments.programId, programs.id))
       .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
+      .leftJoin(departments, eq(programs.departmentId, departments.id))
       .leftJoin(enrollmentProgress, eq(enrollments.id, enrollmentProgress.enrollmentId));
-    const rows = statusFilter
-      ? await baseQuery.where(eq(enrollments.status, statusFilter as 'pending' | 'active' | 'completed' | 'dropped' | 'suspended')).orderBy(desc(enrollments.enrolledAt))
+    const conditions: ReturnType<typeof eq>[] = [];
+    if (statusFilter) conditions.push(eq(enrollments.status, statusFilter as 'pending' | 'active' | 'completed' | 'dropped' | 'suspended'));
+    if (promotionIdFilter) conditions.push(eq(enrollments.promotionId, promotionIdFilter));
+    if (programIdFilter) conditions.push(eq(enrollments.programId, programIdFilter));
+    if (departmentIdFilter) conditions.push(eq(programs.departmentId, departmentIdFilter));
+    if (departmentSlugFilter) conditions.push(eq(departments.slug, departmentSlugFilter));
+    const whereClause = conditions.length > 0 ? and(...(conditions as [ReturnType<typeof eq>, ...ReturnType<typeof eq>[]])) : undefined;
+    const rows = whereClause
+      ? await baseQuery.where(whereClause).orderBy(desc(enrollments.enrolledAt))
       : await baseQuery.orderBy(desc(enrollments.enrolledAt));
     const programIds = [...new Set(rows.map((r) => r.programId).filter(Boolean))] as string[];
     const feesMap = await resolveProgramFees(programIds);

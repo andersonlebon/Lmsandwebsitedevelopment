@@ -44,11 +44,36 @@ const STATUS_LABELS: Record<string, { en: string; fr: string }> = {
   suspended: { en: 'Suspended', fr: 'Suspendu' },
 };
 
+interface PromotionOption {
+  id: string;
+  name: string;
+  nameFr?: string;
+}
+interface ProgramOption {
+  id: string;
+  name: string;
+  nameFr?: string;
+  departmentId?: string;
+  department?: string;
+}
+interface DepartmentOption {
+  id: string;
+  name: string;
+  name_fr?: string;
+  slug: string;
+}
+
 export function Enrollments() {
   const { lang } = useLanguage();
   const [list, setList] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
+  const [promotionFilter, setPromotionFilter] = useState<string>('');
+  const [programFilter, setProgramFilter] = useState<string>('');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('');
+  const [promotions, setPromotions] = useState<PromotionOption[]>([]);
+  const [programs, setPrograms] = useState<ProgramOption[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [progressModal, setProgressModal] = useState<Enrollment | null>(null);
@@ -59,14 +84,34 @@ export function Enrollments() {
   const [savingProgress, setSavingProgress] = useState(false);
 
   useEffect(() => {
+    (async () => {
+      try {
+        const [promData, progData, deptData] = await Promise.all([
+          apiFetch('/promotions', { requireAuth: true }),
+          apiFetch('/programs', { requireAuth: true }),
+          apiFetch('/departments', { requireAuth: true }),
+        ]);
+        setPromotions(promData.promotions || []);
+        setPrograms(progData.programs || []);
+        setDepartments(deptData.departments || []);
+      } catch (_) {}
+    })();
+  }, []);
+
+  useEffect(() => {
     load();
-  }, [statusFilter]);
+  }, [statusFilter, promotionFilter, programFilter, departmentFilter]);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const url = statusFilter ? `/enrollments?status=${encodeURIComponent(statusFilter)}` : '/enrollments';
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (promotionFilter) params.set('promotionId', promotionFilter);
+      if (programFilter) params.set('programId', programFilter);
+      if (departmentFilter) params.set('departmentId', departmentFilter);
+      const url = params.toString() ? `/enrollments?${params.toString()}` : '/enrollments';
       const data = await apiFetch(url, { requireAuth: true });
       setList(data.enrollments || []);
     } catch (e: any) {
@@ -159,12 +204,47 @@ export function Enrollments() {
             {lang === 'fr' ? 'Approuvez les inscriptions lorsque l’étudiant a payé.' : 'Approve enrollments when the student has paid.'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Filter size={18} className="text-gray-500" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Filter size={18} className="text-gray-500 shrink-0" />
+          <select
+            value={departmentFilter}
+            onChange={e => setDepartmentFilter(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[140px]"
+            title={lang === 'fr' ? 'Département' : 'Department'}
+          >
+            <option value="">{lang === 'fr' ? 'Tous les départements' : 'All departments'}</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.id}>{lang === 'fr' ? (d.name_fr || d.name) : d.name}</option>
+            ))}
+          </select>
+          <select
+            value={promotionFilter}
+            onChange={e => setPromotionFilter(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[140px]"
+            title={lang === 'fr' ? 'Promotion' : 'Promotion'}
+          >
+            <option value="">{lang === 'fr' ? 'Toutes les promotions' : 'All promotions'}</option>
+            {promotions.map(p => (
+              <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
+            ))}
+          </select>
+          <select
+            value={programFilter}
+            onChange={e => setProgramFilter(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[140px]"
+            title={lang === 'fr' ? 'Programme' : 'Program'}
+          >
+            <option value="">{lang === 'fr' ? 'Tous les programmes' : 'All programs'}</option>
+            {programs
+              .filter(prog => !departmentFilter || prog.departmentId === departmentFilter)
+              .map(p => (
+                <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
+              ))}
+          </select>
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[120px]"
           >
             <option value="pending">{lang === 'fr' ? 'En attente' : 'Pending'}</option>
             <option value="active">{lang === 'fr' ? 'Actifs' : 'Active'}</option>

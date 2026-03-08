@@ -365,6 +365,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'sid.title': { en: 'Student ID Card', fr: 'Carte d\'Étudiant' },
   'sid.subtitle': { en: 'Your digital student card and boarding pass', fr: 'Votre carte d\'étudiant numérique et pass d\'embarquement' },
   'sid.studentId': { en: 'Student ID', fr: 'ID Étudiant' },
+  'sid.rollNumber': { en: 'Roll No.', fr: 'Matricule' },
   'sid.department': { en: 'Department', fr: 'Département' },
   'sid.enrolled': { en: 'Enrolled', fr: 'Inscrit' },
   'sid.validUntil': { en: 'Valid Until', fr: 'Valide Jusqu\'à' },

@@ -94,6 +94,7 @@ export function Programs() {
   const [savingToStructures, setSavingToStructures] = useState(false);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editProgram, setEditProgram] = useState<Program | null>(null);
@@ -343,14 +344,8 @@ export function Programs() {
   const filtered = programs.filter(p => {
     const matchDept = deptFilter === 'all' || p.department === deptFilter || p.departmentId === deptFilter;
     const matchSearch = !search || (p.name + p.nameFr).toLowerCase().includes(search.toLowerCase());
-    return matchDept && matchSearch;
-  });
-
-  // Group by department
-  const groupedByDept: Record<string, Program[]> = {};
-  filtered.forEach(p => {
-    if (!groupedByDept[p.department]) groupedByDept[p.department] = [];
-    groupedByDept[p.department].push(p);
+    const matchStatus = statusFilter === 'all' || p.status === statusFilter;
+    return matchDept && matchSearch && matchStatus;
   });
 
   const totalFees = programs.reduce((sum, p) => sum + (p.fees?.length || 0), 0);
@@ -409,7 +404,7 @@ export function Programs() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -423,9 +418,15 @@ export function Programs() {
             <option key={d.id} value={d.slug}>{lang === 'fr' ? (d.name_fr || d.name) : d.name}</option>
           ))}
         </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+          className="px-4 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500">
+          <option value="all">{lang === 'fr' ? 'Tous les statuts' : 'All statuses'}</option>
+          <option value="active">{lang === 'fr' ? 'Actif' : 'Active'}</option>
+          <option value="inactive">{lang === 'fr' ? 'Inactif' : 'Inactive'}</option>
+        </select>
       </div>
 
-      {/* Programs list */}
+      {/* Programs grid (2 or 3 columns) */}
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-gray-400" /></div>
       ) : filtered.length === 0 ? (
@@ -438,173 +439,167 @@ export function Programs() {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {Object.entries(groupedByDept).map(([deptSlug, deptPrograms]) => {
-            const dept = departments.find(d => d.slug === deptSlug);
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(program => {
+            const isExpanded = expandedId === program.id;
+            const deptSlug = program.department || '';
+            const dept = departments.find(d => d.slug === deptSlug || d.id === program.departmentId);
             const iconAndColor = DEPT_ICONS[deptSlug] || { icon: BookOpen, color: dept?.color || '#666' };
             const DeptIcon = iconAndColor.icon;
+            const feesTotal = program.totalAmountToPay ?? (program.fees || []).reduce((s, f) => s + f.amount, 0);
             return (
-              <div key={deptSlug} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                {/* Department header */}
-                <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${iconAndColor.color}20` }}>
-                    <DeptIcon size={16} style={{ color: iconAndColor.color }} />
-                  </div>
-                  <span className="font-semibold text-gray-900 dark:text-white text-sm" style={{ fontFamily: 'Poppins' }}>
-                    {dept ? (lang === 'fr' ? (dept.name_fr || dept.name) : dept.name) : deptSlug}
-                  </span>
-                  <span className="text-xs text-gray-400 ml-auto">{deptPrograms.length} {lang === 'fr' ? 'programmes' : 'programs'}</span>
-                </div>
-
-                {/* Program rows */}
-                <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                  {deptPrograms.map(program => {
-                    const isExpanded = expandedId === program.id;
-                    const feesTotal = program.totalAmountToPay ?? (program.fees || []).reduce((s, f) => s + f.amount, 0);
-                    return (
-                      <div key={program.id}>
-                        <div
-                          className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors cursor-pointer"
-                          onClick={() => setExpandedId(isExpanded ? null : program.id)}>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                                {lang === 'fr' ? (program.nameFr || program.name) : program.name}
-                              </p>
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                program.status === 'active'
-                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                  : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                              }`}>
-                                {program.status === 'active' ? (lang === 'fr' ? 'Actif' : 'Active') : (lang === 'fr' ? 'Inactif' : 'Inactive')}
-                              </span>
-                            </div>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                              {(program.fees || []).length} {lang === 'fr' ? 'frais' : 'fees'} {' '}
-                              {feesTotal > 0 && <span className="font-medium" style={{ color: iconAndColor.color }}>= ${feesTotal}</span>}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button onClick={e => { e.stopPropagation(); openEdit(program); }}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
-                              <Edit2 size={14} />
-                            </button>
-                            <button onClick={e => { e.stopPropagation(); handleDelete(program.id); }}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                              <Trash2 size={14} />
-                            </button>
-                            {isExpanded ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
-                          </div>
-                        </div>
-
-                        {/* Expanded fee list */}
-                        <AnimatePresence>
-                          {isExpanded && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                              className="overflow-hidden">
-                              <div className="px-5 pb-4">
-                                {(program.fees || []).length === 0 ? (
-                                  <div className="text-center py-4 text-gray-400 text-xs">
-                                    {lang === 'fr' ? 'Aucun frais défini pour ce programme.' : 'No fees defined for this program.'}
-                                  </div>
-                                ) : (
-                                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl overflow-hidden">
-                                    <table className="w-full text-xs">
-                                      <thead>
-                                        <tr className="border-b border-gray-200 dark:border-gray-700">
-                                          <th className="text-left px-4 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Frais' : 'Fee'}</th>
-                                          <th className="text-left px-4 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Type' : 'Type'}</th>
-                                          <th className="text-right px-4 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Montant' : 'Amount'}</th>
-                                          <th className="text-center px-4 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Obligatoire' : 'Required'}</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {program.fees.map(fee => (
-                                          <tr key={fee.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                                            <td className="px-4 py-2.5 text-gray-900 dark:text-white font-medium">
-                                              {lang === 'fr' ? (fee.nameFr || fee.name) : fee.name}
-                                            </td>
-                                            <td className="px-4 py-2.5 text-gray-500">
-                                              {FEE_TYPES.find(t => t.id === fee.type)?.[lang === 'fr' ? 'fr' : 'en'] || fee.type}
-                                            </td>
-                                            <td className="px-4 py-2.5 text-right font-bold" style={{ color: iconAndColor.color }}>
-                                              {fee.currency === 'CDF' ? 'FC' : fee.currency === 'RWF' ? 'FRw' : '$'}{fee.amount}
-                                            </td>
-                                            <td className="px-4 py-2.5 text-center">
-                                              {fee.required
-                                                ? <span className="text-green-500">*</span>
-                                                : <span className="text-gray-300">-</span>}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                      <tfoot>
-                                        <tr className="bg-gray-100 dark:bg-gray-800">
-                                          <td colSpan={2} className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300">
-                                            {lang === 'fr' ? 'Total' : 'Total'}
-                                          </td>
-                                          <td className="px-4 py-2 text-right font-bold text-gray-900 dark:text-white">
-                                            ${feesTotal}
-                                          </td>
-                                          <td />
-                                        </tr>
-                                      </tfoot>
-                                    </table>
-                                  </div>
-                                )}
-                                {/* Classes (time slots) for this program */}
-                                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                                  <div className="flex items-center justify-between mb-3">
-                                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                                      <Clock size={14} /> {lang === 'fr' ? 'Créneaux horaires' : 'Class times'}
-                                    </span>
-                                    <button type="button" onClick={() => { setClassForm({ startTime: '', endTime: '', name: '', room: '' }); setClassModal(true); }}
-                                      className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1">
-                                      <Plus size={12} /> {lang === 'fr' ? 'Ajouter un créneau' : 'Add class'}
-                                    </button>
-                                  </div>
-                                  {programClasses.length === 0 ? (
-                                    <p className="text-xs text-gray-400 py-2">{lang === 'fr' ? 'Aucun créneau. Les étudiants pourront s\'inscrire sans choisir d\'horaire.' : 'No classes. Students can register without selecting a time.'}</p>
-                                  ) : (
-                                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl overflow-hidden">
-                                      <table className="w-full text-xs">
-                                        <thead>
-                                          <tr className="border-b border-gray-200 dark:border-gray-700">
-                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Début' : 'Start'}</th>
-                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Fin' : 'End'}</th>
-                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Nom' : 'Name'}</th>
-                                            <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Salle' : 'Room'}</th>
-                                            <th className="w-8 px-2 py-2" />
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {programClasses.map(cls => (
-                                            <tr key={cls.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{cls.startTime}</td>
-                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{cls.endTime}</td>
-                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{cls.name || '—'}</td>
-                                              <td className="px-3 py-2 text-gray-500">{cls.room || '—'}</td>
-                                              <td className="px-2 py-2">
-                                                <button type="button" onClick={() => deleteClass(cls.id)} className="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                                  <Trash2 size={12} />
-                                                </button>
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+              <motion.div
+                key={program.id}
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col"
+              >
+                {/* Card header — click to expand/collapse */}
+                <div
+                  className="p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : program.id)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${iconAndColor.color}20` }}>
+                        <DeptIcon size={18} style={{ color: iconAndColor.color }} />
                       </div>
-                    );
-                  })}
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate" style={{ fontFamily: 'Poppins' }}>
+                        {dept ? (lang === 'fr' ? (dept.name_fr || dept.name) : dept.name) : deptSlug || '—'}
+                      </span>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
+                      program.status === 'active'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                    }`}>
+                      {program.status === 'active' ? (lang === 'fr' ? 'Actif' : 'Active') : (lang === 'fr' ? 'Inactif' : 'Inactive')}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1 truncate" style={{ fontFamily: 'Poppins' }}>
+                    {lang === 'fr' ? (program.nameFr || program.name) : program.name}
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {(program.fees || []).length} {lang === 'fr' ? 'frais' : 'fees'}
+                    {feesTotal > 0 && (
+                      <span className="font-semibold ml-1" style={{ color: iconAndColor.color }}>= ${feesTotal}</span>
+                    )}
+                  </p>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <span className="text-xs text-gray-400">
+                      {isExpanded ? (lang === 'fr' ? 'Réduire' : 'Collapse') : (lang === 'fr' ? 'Voir détails' : 'View details')}
+                    </span>
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => openEdit(program)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                        title={lang === 'fr' ? 'Modifier' : 'Edit'}>
+                        <Edit2 size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(program.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                        title={lang === 'fr' ? 'Supprimer' : 'Delete'}>
+                        <Trash2 size={14} />
+                      </button>
+                      {isExpanded ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
+                    </div>
+                  </div>
                 </div>
-              </div>
+
+                {/* Expanded: fee table + class times */}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden border-t border-gray-100 dark:border-gray-700"
+                    >
+                      <div className="p-4 pt-3 bg-gray-50/50 dark:bg-gray-900/30">
+                        {(program.fees || []).length === 0 ? (
+                          <p className="text-center py-3 text-gray-400 text-xs">
+                            {lang === 'fr' ? 'Aucun frais défini pour ce programme.' : 'No fees defined for this program.'}
+                          </p>
+                        ) : (
+                          <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 mb-4">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Frais' : 'Fee'}</th>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Type' : 'Type'}</th>
+                                  <th className="text-right px-3 py-2 font-semibold text-gray-500">{lang === 'fr' ? 'Montant' : 'Amount'}</th>
+                                  <th className="text-center px-3 py-2 font-semibold text-gray-500 w-8">*</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {program.fees.map(fee => (
+                                  <tr key={fee.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 bg-white dark:bg-gray-800/50">
+                                    <td className="px-3 py-2 text-gray-900 dark:text-white font-medium">{lang === 'fr' ? (fee.nameFr || fee.name) : fee.name}</td>
+                                    <td className="px-3 py-2 text-gray-500">{FEE_TYPES.find(t => t.id === fee.type)?.[lang === 'fr' ? 'fr' : 'en'] || fee.type}</td>
+                                    <td className="px-3 py-2 text-right font-bold" style={{ color: iconAndColor.color }}>
+                                      {fee.currency === 'CDF' ? 'FC' : fee.currency === 'RWF' ? 'FRw' : '$'}{fee.amount}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">{fee.required ? <span className="text-green-500">*</span> : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="bg-gray-100 dark:bg-gray-800 font-semibold">
+                                  <td colSpan={2} className="px-3 py-2 text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Total' : 'Total'}</td>
+                                  <td className="px-3 py-2 text-right text-gray-900 dark:text-white">${feesTotal}</td>
+                                  <td />
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                        <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                              <Clock size={12} /> {lang === 'fr' ? 'Créneaux' : 'Class times'}
+                            </span>
+                            <button type="button" onClick={e => { e.stopPropagation(); setClassForm({ startTime: '', endTime: '', name: '', room: '' }); setClassModal(true); }}
+                              className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1">
+                              <Plus size={12} /> {lang === 'fr' ? 'Ajouter' : 'Add'}
+                            </button>
+                          </div>
+                          {programClasses.length === 0 ? (
+                            <p className="text-xs text-gray-400 py-1">{lang === 'fr' ? 'Aucun créneau.' : 'No classes.'}</p>
+                          ) : (
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+                                    <th className="text-left px-2 py-1.5 font-semibold text-gray-500">{lang === 'fr' ? 'Début' : 'Start'}</th>
+                                    <th className="text-left px-2 py-1.5 font-semibold text-gray-500">{lang === 'fr' ? 'Fin' : 'End'}</th>
+                                    <th className="text-left px-2 py-1.5 font-semibold text-gray-500">{lang === 'fr' ? 'Salle' : 'Room'}</th>
+                                    <th className="w-7 px-1 py-1.5" />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {programClasses.map(cls => (
+                                    <tr key={cls.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                      <td className="px-2 py-1.5 text-gray-900 dark:text-white">{cls.startTime}</td>
+                                      <td className="px-2 py-1.5 text-gray-900 dark:text-white">{cls.endTime}</td>
+                                      <td className="px-2 py-1.5 text-gray-500">{cls.room || '—'}</td>
+                                      <td className="px-1 py-1.5">
+                                        <button type="button" onClick={e => { e.stopPropagation(); deleteClass(cls.id); }} className="p-0.5 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                          <Trash2 size={11} />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             );
           })}
         </div>

@@ -1,7 +1,31 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { QrCode, Download, Calendar, Clock, User, BookOpen, MapPin, Shield } from 'lucide-react';
+import { QrCode, Download, Calendar, Clock, User, BookOpen, MapPin, Shield, Pencil, X, Check } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
+import { apiFetch } from '../../lib/api';
+
 const btcLogo = '/images/btc-logo.png';
+
+type Profile = {
+  id: string;
+  email: string;
+  name: string;
+  phone?: string;
+  roll_number?: string;
+  date_of_birth?: string;
+  gender?: string;
+  address?: string;
+};
+
+type Enrollment = {
+  id: string;
+  enrolledAt?: string;
+  endDate?: string;
+  progName?: string;
+  progNameFr?: string;
+  departmentName?: string;
+  departmentNameFr?: string;
+};
 
 function QRCodePlaceholder({ value }: { value: string }) {
   // Generate a visual QR-code-like pattern from the string
@@ -18,24 +42,116 @@ function QRCodePlaceholder({ value }: { value: string }) {
   );
 }
 
+function formatDate(s: string | undefined): string {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+  } catch {
+    return '—';
+  }
+}
+
 export function PortalStudentID() {
   const { t, lang } = useLanguage();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', date_of_birth: '', phone: '', address: '', gender: '' });
+  const [saving, setSaving] = useState(false);
 
-  const user = JSON.parse(localStorage.getItem('btc_user') || '{"name":"—","email":""}');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [meRes, enrollRes] = await Promise.all([
+          apiFetch('/me', { requireAuth: true }),
+          apiFetch('/enrollments/my', { requireAuth: true }).catch(() => ({ enrollments: [] })),
+        ]);
+        if (cancelled) return;
+        setProfile((meRes as { profile: Profile }).profile);
+        setEnrollments((enrollRes as { enrollments: Enrollment[] }).enrollments || []);
+        const p = (meRes as { profile: Profile }).profile;
+        if (p) {
+          setEditForm({
+            name: p.name || '',
+            date_of_birth: p.date_of_birth || '',
+            phone: p.phone || '',
+            address: p.address || '',
+            gender: p.gender || '',
+          });
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const firstEnrollment = enrollments[0];
+  const progName = firstEnrollment ? (lang === 'fr' && firstEnrollment.progNameFr ? firstEnrollment.progNameFr : firstEnrollment.progName) : undefined;
+  const deptName = firstEnrollment ? (lang === 'fr' && firstEnrollment.departmentNameFr ? firstEnrollment.departmentNameFr : firstEnrollment.departmentName) : undefined;
 
   const student = {
-    name: user.name || '—',
-    id: '—',
-    department: '—',
-    course: '—',
-    enrolled: '—',
-    validUntil: '—',
+    name: profile?.name || '—',
+    rollNumber: profile?.roll_number || '—',
+    department: deptName || '—',
+    course: progName || '—',
+    enrolled: formatDate(firstEnrollment?.enrolledAt),
+    validUntil: formatDate(firstEnrollment?.endDate),
     instructor: '—',
     schedule: '—',
     photo: null,
   };
 
   const weekSchedule: any[] = [];
+
+  const handleSaveEdit = async () => {
+    if (!profile) return;
+    setSaving(true);
+    try {
+      await apiFetch('/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editForm.name,
+          date_of_birth: editForm.date_of_birth || undefined,
+          phone: editForm.phone || undefined,
+          address: editForm.address || undefined,
+          gender: editForm.gender || undefined,
+        }),
+        requireAuth: true,
+      });
+      const res = await apiFetch('/me', { requireAuth: true });
+      setProfile((res as { profile: Profile }).profile);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <p className="text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Chargement…' : 'Loading…'}</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
+        <p className="text-red-700 dark:text-red-300">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -76,7 +192,7 @@ export function PortalStudentID() {
                 <h2 className="text-white text-xl mb-1" style={{ fontFamily: 'Poppins', fontWeight: 700 }}>{student.name}</h2>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-white/80 text-sm">
-                    <Shield size={13} /> <span className="font-mono font-bold">{student.id}</span>
+                    <Shield size={13} /> <span className="font-mono font-bold">{t('sid.rollNumber')}: {student.rollNumber}</span>
                   </div>
                   <div className="flex items-center gap-2 text-white/70 text-sm">
                     <BookOpen size={13} /> {student.department} — {student.course}
@@ -105,14 +221,107 @@ export function PortalStudentID() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 p-6 flex flex-col items-center justify-center shadow-lg">
           <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">{t('sid.scanQR')}</p>
-          <QRCodePlaceholder value={student.id} />
-          <p className="text-xs font-mono font-bold text-gray-900 dark:text-white mt-3">{student.id}</p>
+          <QRCodePlaceholder value={student.rollNumber} />
+          <p className="text-xs font-mono font-bold text-gray-900 dark:text-white mt-3">{student.rollNumber}</p>
           <p className="text-xs text-gray-400 mt-1">{student.name}</p>
           <button className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold" style={{ background: 'var(--btc-primary,#2E8B57)' }}>
             <Download size={15} /> {t('sid.download')}
           </button>
         </motion.div>
       </div>
+
+      {/* Edit my info — only changeable fields (name, DOB, phone, address, gender). Roll number and IDs are read-only. */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins', fontWeight: 600 }}>
+            {lang === 'fr' ? 'Modifier mes informations' : 'Edit my information'}
+          </h3>
+          {!editing ? (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white"
+              style={{ background: 'var(--btc-primary,#2E8B57)' }}
+            >
+              <Pencil size={14} /> {lang === 'fr' ? 'Modifier' : 'Edit'}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setEditing(false)} className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <X size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={saving}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
+                style={{ background: 'var(--btc-primary,#2E8B57)' }}
+              >
+                <Check size={14} /> {saving ? (lang === 'fr' ? 'Enregistrement…' : 'Saving…') : (lang === 'fr' ? 'Enregistrer' : 'Save')}
+              </button>
+            </div>
+          )}
+        </div>
+        {editing && (
+          <div className="p-6 space-y-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {lang === 'fr' ? 'Vous pouvez modifier uniquement : nom, date de naissance, téléphone, adresse et genre. Le numéro de matricule et les identifiants ne sont pas modifiables.' : 'You can only change: name, date of birth, phone, address and gender. Roll number and IDs cannot be changed.'}
+            </p>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Nom' : 'Name'}</span>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Date de naissance' : 'Date of birth'}</span>
+                <input
+                  type="date"
+                  value={editForm.date_of_birth}
+                  onChange={(e) => setEditForm((f) => ({ ...f, date_of_birth: e.target.value }))}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Téléphone' : 'Phone'}</span>
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Genre' : 'Gender'}</span>
+                <select
+                  value={editForm.gender}
+                  onChange={(e) => setEditForm((f) => ({ ...f, gender: e.target.value }))}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2"
+                >
+                  <option value="">—</option>
+                  <option value="male">{lang === 'fr' ? 'Homme' : 'Male'}</option>
+                  <option value="female">{lang === 'fr' ? 'Femme' : 'Female'}</option>
+                  <option value="other">{lang === 'fr' ? 'Autre' : 'Other'}</option>
+                </select>
+              </label>
+            </div>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Adresse' : 'Address'}</span>
+              <textarea
+                value={editForm.address}
+                onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))}
+                rows={2}
+                className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2"
+              />
+            </label>
+          </div>
+        )}
+      </motion.div>
 
       {/* Weekly Schedule */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
