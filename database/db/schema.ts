@@ -215,6 +215,7 @@ export const enrollments = pgTable('enrollments', {
   programId: uuid('program_id'),
   promotionId: uuid('promotion_id'),
   classId: uuid('class_id'),
+  rollNumber: text('roll_number').unique(),
   status: enrollmentStatusEnum('status').notNull().default('pending'),
   enrolledAt: timestamptz('enrolled_at').defaultNow(),
   progress: integer('progress').default(0),

@@ -101,6 +101,11 @@ export function PortalMyCourses() {
               </div>
               <div className="flex-1">
                 <h2 className="text-gray-900 dark:text-white mb-1" style={{ fontFamily: 'Poppins', fontWeight: 700 }}>{progName(displayEnr)}</h2>
+                {displayEnr.rollNumber && (
+                  <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">
+                    {lang === 'fr' ? 'N° rôle' : 'Roll no.'}: {displayEnr.rollNumber}
+                  </p>
+                )}
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{displayEnr.promoName}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {displayEnr.startDate && displayEnr.endDate && `${new Date(displayEnr.startDate).toLocaleDateString()} – ${new Date(displayEnr.endDate).toLocaleDateString()}`}

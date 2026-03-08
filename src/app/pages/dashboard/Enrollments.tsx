@@ -21,6 +21,7 @@ interface Enrollment {
   studentId: string;
   programId: string;
   promotionId: string;
+  rollNumber?: string;
   status: string;
   enrolledAt: string;
   studentName?: string;
@@ -205,9 +206,16 @@ export function Enrollments() {
                   <UserCheck size={22} style={{ color: 'var(--btc-primary,#16a34a)' }} />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 dark:text-white truncate">
-                    {e.studentName || e.studentEmail || e.studentId}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-gray-900 dark:text-white truncate">
+                      {e.studentName || e.studentEmail || e.studentId}
+                    </p>
+                    {e.rollNumber && (
+                      <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300" title={lang === 'fr' ? 'Numéro de rôle' : 'Roll number'}>
+                        {e.rollNumber}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                     {e.studentEmail}
                   </p>

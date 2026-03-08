@@ -8,7 +8,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
-import { eq, asc, desc, inArray, and } from 'drizzle-orm';
+import { eq, asc, desc, inArray, and, isNull, isNotNull, sql } from 'drizzle-orm';
 import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses } from '../database/db/index';
 
 const app = new Hono();
@@ -1325,8 +1325,52 @@ app.delete('/promotions/:id', async (c) => {
 });
 
 // ──────────────────────────────────────
-// ENROLLMENTS: create (student enrolls in promotion)
+// ENROLLMENTS: create (student enrolls in promotion) + roll number generation
 // ──────────────────────────────────────
+/** Generate unique roll number: DEPT-PROG-PROMO-CLASS-SEQ (e.g. ENG-L1-2025Q1-0600-001) */
+async function generateRollNumber(programId: string, promotionId: string, classId: string | null): Promise<string> {
+  const [progRow] = await db
+    .select({
+      programName: programs.name,
+      deptSlug: departments.slug,
+    })
+    .from(programs)
+    .leftJoin(departments, eq(programs.departmentId, departments.id))
+    .where(eq(programs.id, programId));
+  const [promoRow] = await db.select({ name: promotions.name }).from(promotions).where(eq(promotions.id, promotionId));
+  let classCode = '0';
+  if (classId) {
+    const [clsRow] = await db.select({ startTime: programClasses.startTime }).from(programClasses).where(eq(programClasses.id, classId));
+    if (clsRow?.startTime) {
+      classCode = String(clsRow.startTime).replace(/:/g, '').replace(/\D/g, '').slice(0, 4) || '0';
+      if (classCode.length < 2) classCode = classCode.padStart(2, '0');
+    }
+  }
+  const deptCode = (progRow?.deptSlug ?? 'GEN').toUpperCase().replace(/\W/g, '').slice(0, 4) || 'GEN';
+  const progName = progRow?.programName ?? 'P';
+  const progCode = progName
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+    .replace(/\W/g, '')
+    .slice(0, 3) || 'P';
+  const promoName = promoRow?.name ?? '';
+  const promoCode = promoName.replace(/\W/g, '').slice(0, 6).toUpperCase() || 'PROMO';
+  const sameGroup = classId
+    ? and(eq(enrollments.programId, programId), eq(enrollments.promotionId, promotionId), eq(enrollments.classId, classId), isNotNull(enrollments.rollNumber))
+    : and(eq(enrollments.programId, programId), eq(enrollments.promotionId, promotionId), isNull(enrollments.classId), isNotNull(enrollments.rollNumber));
+  const countResult = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(enrollments)
+    .where(sameGroup);
+  const seq = (countResult[0]?.count ?? 0) + 1;
+  const seqStr = String(seq).padStart(3, '0');
+  return `${deptCode}-${progCode}-${promoCode}-${classCode}-${seqStr}`;
+}
+
 app.post('/enrollments', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
@@ -1351,17 +1395,47 @@ app.post('/enrollments', async (c) => {
     }
     const existing = await db.select().from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId))).limit(1);
     if (existing.length > 0) return c.json({ error: 'Already enrolled in this promotion for this program' }, 400);
+    const rollNumber = await generateRollNumber(programId, promotionId, classId);
     const [inserted] = await db.insert(enrollments).values({
       studentId: auth.userId,
       programId,
       promotionId: promo.id,
       classId: classId || undefined,
+      rollNumber,
       status: 'pending', // admin approves when payment confirmed; progress is created on approval
     }).returning();
     return c.json({ enrollment: inserted });
   } catch (e) {
     console.error('Create enrollment error:', e);
     return c.json({ error: `Failed to create enrollment: ${(e as Error).message}` }, 500);
+  }
+});
+
+/** Backfill roll numbers for enrollments that don't have one (admin only). */
+app.post('/enrollments/backfill-roll-numbers', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const withoutRoll = await db
+      .select({ id: enrollments.id, programId: enrollments.programId, promotionId: enrollments.promotionId, classId: enrollments.classId })
+      .from(enrollments)
+      .where(isNull(enrollments.rollNumber))
+      .orderBy(asc(enrollments.programId), asc(enrollments.promotionId), asc(enrollments.classId), asc(enrollments.createdAt));
+    let updated = 0;
+    for (const en of withoutRoll) {
+      if (!en.programId || !en.promotionId) continue;
+      try {
+        const rollNumber = await generateRollNumber(en.programId, en.promotionId, en.classId ?? null);
+        await db.update(enrollments).set({ rollNumber, updatedAt: new Date() }).where(eq(enrollments.id, en.id));
+        updated++;
+      } catch (err) {
+        console.error('Backfill roll number for enrollment', en.id, err);
+      }
+    }
+    return c.json({ updated, total: withoutRoll.length });
+  } catch (e) {
+    console.error('Backfill roll numbers error:', e);
+    return c.json({ error: (e as Error).message }, 500);
   }
 });
 
@@ -1374,6 +1448,7 @@ app.get('/enrollments/my', async (c) => {
         id: enrollments.id,
         programId: enrollments.programId,
         promotionId: enrollments.promotionId,
+        rollNumber: enrollments.rollNumber,
         status: enrollments.status,
         enrolledAt: enrollments.enrolledAt,
         progName: programs.name,
@@ -1407,6 +1482,7 @@ app.get('/enrollments/my', async (c) => {
         id: r.id,
         programId: r.programId,
         promotionId: r.promotionId,
+        rollNumber: r.rollNumber ?? undefined,
         status: r.status,
         enrolledAt: r.enrolledAt,
         progName: r.progName,
@@ -1448,6 +1524,7 @@ app.get('/enrollments', async (c) => {
         studentId: enrollments.studentId,
         programId: enrollments.programId,
         promotionId: enrollments.promotionId,
+        rollNumber: enrollments.rollNumber,
         status: enrollments.status,
         enrolledAt: enrollments.enrolledAt,
         studentName: profiles.name,
@@ -1487,6 +1564,7 @@ app.get('/enrollments', async (c) => {
         studentId: r.studentId,
         programId: r.programId,
         promotionId: r.promotionId,
+        rollNumber: r.rollNumber ?? undefined,
         status: r.status,
         enrolledAt: r.enrolledAt,
         studentName: r.studentName,

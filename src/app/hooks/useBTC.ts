@@ -211,6 +211,7 @@ export interface Enrollment {
   programId?: string | null;
   promotionId?: string | null;
   course_id?: string | null;
+  rollNumber?: string;
   status: string;
   enrolled_at?: string;
   enrolledAt?: string;
