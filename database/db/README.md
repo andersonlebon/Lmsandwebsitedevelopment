@@ -15,6 +15,7 @@ Schema and seed live here. The schema mirrors `../btc_schema.sql` for PostgreSQL
 - `npm run db:generate` – generate migrations from schema
 - `npm run db:push` – push schema to DB (dev)
 - `npm run db:migrate` – run migrations
+- `npm run db:reset` – **drop entire public schema and recreate from scratch** (push + seed). Use to test from a clean DB.
 - `npm run db:seed` – seed 4 departments (English, Computer, Driving, Sewing)
 - `npm run db:studio` – open Drizzle Studio
 

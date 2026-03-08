@@ -8,6 +8,41 @@
       "when": 1772832688064,
       "tag": "0000_stiff_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772838057947,
+      "tag": "0001_flimsy_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772839176412,
+      "tag": "0002_fair_tag",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772843410449,
+      "tag": "0003_clever_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772871887390,
+      "tag": "0004_luxuriant_tinkerer",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772872332342,
+      "tag": "0005_acoustic_cyclops",
+      "breakpoints": true
     }
   ]
 }

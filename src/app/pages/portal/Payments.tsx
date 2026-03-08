@@ -97,6 +97,17 @@ export function PortalPayments() {
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
+  // Create enrollment from pending promotion (after registration) then load programs and payments
+  useEffect(() => {
+    const pending = localStorage.getItem('btc_pending_payment');
+    const pendingData = pending ? (() => { try { return JSON.parse(pending); } catch { return null; } })() : null;
+    if (user && pendingData?.promotionId && pendingData?.courseId) {
+      apiFetch('/enrollments', { method: 'POST', body: JSON.stringify({ promotionId: pendingData.promotionId, programId: pendingData.courseId }), requireAuth: true })
+        .then(() => { /* enrollment created */ })
+        .catch((e) => console.warn('Enrollment from pending promotion:', e.message));
+    }
+  }, [user?.id]);
+
   // Load programs and payments
   useEffect(() => {
     (async () => {
@@ -110,7 +121,6 @@ export function PortalPayments() {
         if (pending) {
           try {
             const pendingData = JSON.parse(pending);
-            // Try to match by course name or department
             const matched = activePrograms.find((p: Program) =>
               p.id === pendingData.courseId ||
               p.name.toLowerCase() === (pendingData.courseName || '').toLowerCase() ||
@@ -119,8 +129,8 @@ export function PortalPayments() {
             if (matched) setSelectedProgramId(matched.id);
           } catch (_) { /* ignore */ }
         }
-        if (!selectedProgramId && activePrograms.length === 1) {
-          setSelectedProgramId(activePrograms[0].id);
+        if (activePrograms.length === 1) {
+          setSelectedProgramId((prev) => prev || activePrograms[0].id);
         }
       } catch (e) {
         console.error('Failed to load programs:', e);

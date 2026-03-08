@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard, Users, UserCog, DollarSign, BookOpen,
   Settings, LogOut, Menu, X, GraduationCap, Bell, Search, ChevronRight,
-  Building2, Award, BarChart3, ClipboardList
+  Building2, Award, BarChart3, ClipboardList, CalendarDays, Tag, TrendingUp
 } from 'lucide-react';
 import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
@@ -26,6 +26,9 @@ export function DashboardLayout() {
     { href: '/dashboard/staff', label: t('common.staff'), icon: UserCog },
     { href: '/dashboard/departments', label: t('common.departments'), icon: Building2 },
     { href: '/dashboard/programs', label: lang === 'fr' ? 'Programmes & Frais' : 'Programs & Fees', icon: ClipboardList },
+    { href: '/dashboard/promotions', label: lang === 'fr' ? 'Promotions' : 'Promotions', icon: CalendarDays },
+    { href: '/dashboard/fee-structures', label: lang === 'fr' ? 'Structure des Frais' : 'Fee Structures', icon: Tag },
+    { href: '/dashboard/exchange-rates', label: lang === 'fr' ? 'Taux de change' : 'Exchange Rates', icon: TrendingUp },
     { href: '/dashboard/financing', label: t('common.financing'), icon: DollarSign },
     { href: '/dashboard/certificates', label: t('common.certificatesAdmin'), icon: Award },
     { href: '/dashboard/reports', label: t('common.reports'), icon: BarChart3 },

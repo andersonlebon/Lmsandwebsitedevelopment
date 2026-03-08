@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from './index';
-import { departments } from './schema';
+import { departments, exchangeRates } from './schema';
 
 const seedDepartments = [
   {
@@ -58,6 +58,14 @@ async function seed() {
     target: departments.slug,
   });
   console.log('Seeded 4 departments.');
+
+  await db.insert(exchangeRates).values([
+    { baseCurrency: 'USD', targetCurrency: 'CDF', rate: '2500', source: 'manual' },
+    { baseCurrency: 'USD', targetCurrency: 'RWF', rate: '1300', source: 'manual' },
+  ]).onConflictDoNothing({
+    target: [exchangeRates.baseCurrency, exchangeRates.targetCurrency],
+  });
+  console.log('Seeded exchange rates (USD→CDF, USD→RWF).');
 }
 
 seed().catch((err) => {

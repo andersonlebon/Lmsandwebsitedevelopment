@@ -20,6 +20,19 @@ interface Fee {
   type: FeeType;
   required: boolean;
   order: number;
+  /** When set, this fee comes from a reusable fee structure; amount can be overridden per program */
+  feeStructureId?: string;
+}
+
+interface FeeStructure {
+  id: string;
+  name: string;
+  nameFr: string;
+  amount: number;
+  currency: string;
+  type: string;
+  required: boolean;
+  sortOrder: number;
 }
 
 interface Program {
@@ -72,17 +85,25 @@ export function Programs() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingToStructures, setSavingToStructures] = useState(false);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editProgram, setEditProgram] = useState<Program | null>(null);
   const [form, setForm] = useState<Omit<Program, 'id'>>({ ...BLANK_PROGRAM });
+  const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
     loadPrograms();
+    (async () => {
+      try {
+        const data = await apiFetch('/fee-structures');
+        setFeeStructures(data.feeStructures || []);
+      } catch (_) {}
+    })();
   }, []);
 
   const loadPrograms = async () => {
@@ -103,12 +124,16 @@ export function Programs() {
     }
     setSaving(true);
     setError('');
+    const programFees = form.fees.filter(f => f.feeStructureId).map((f) => ({ feeStructureId: f.feeStructureId!, amountOverride: f.amount }));
+    const legacyFees = form.fees.filter(f => !f.feeStructureId);
+    const payload = { ...form, fees: legacyFees };
+    if (programFees.length > 0) (payload as any).programFees = programFees;
     try {
       if (modal === 'add') {
         const id = form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
         const result = await apiFetch('/programs', {
           method: 'POST',
-          body: JSON.stringify({ ...form, id }),
+          body: JSON.stringify({ ...payload, id }),
           requireAuth: true,
         });
         setPrograms(prev => [...prev, result.program]);
@@ -116,7 +141,7 @@ export function Programs() {
       } else if (modal === 'edit' && editProgram) {
         const result = await apiFetch(`/programs/${editProgram.id}`, {
           method: 'PUT',
-          body: JSON.stringify(form),
+          body: JSON.stringify(payload),
           requireAuth: true,
         });
         setPrograms(prev => prev.map(p => p.id === editProgram.id ? result.program : p));
@@ -196,6 +221,66 @@ export function Programs() {
   const removeFee = (feeId: string) => {
     setForm(f => ({ ...f, fees: f.fees.filter(fee => fee.id !== feeId) }));
   };
+
+  const addFeeFromStructure = (fs: FeeStructure) => {
+    if (form.fees.some(f => f.feeStructureId === fs.id)) return;
+    const newFee: Fee = {
+      id: `pf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: fs.name,
+      nameFr: fs.nameFr || '',
+      amount: fs.amount,
+      currency: fs.currency,
+      type: fs.type as FeeType,
+      required: fs.required,
+      order: form.fees.length,
+      feeStructureId: fs.id,
+    };
+    setForm(f => ({ ...f, fees: [...f.fees, newFee] }));
+  };
+
+  const saveFeesToStructures = async () => {
+    const customFees = form.fees.filter(f => !f.feeStructureId);
+    if (customFees.length === 0) {
+      setError(lang === 'fr' ? 'Aucun frais personnalisé à enregistrer.' : 'No custom fees to save.');
+      return;
+    }
+    setSavingToStructures(true);
+    setError('');
+    try {
+      const newStructures: FeeStructure[] = [];
+      for (const fee of customFees) {
+        const res = await apiFetch('/fee-structures', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: fee.name,
+            nameFr: fee.nameFr,
+            amount: fee.amount,
+            currency: fee.currency,
+            type: fee.type,
+            required: fee.required,
+          }),
+          requireAuth: true,
+        });
+        newStructures.push(res.feeStructure);
+      }
+      setFeeStructures(prev => [...prev, ...newStructures]);
+      const structureById = new Map(newStructures.map((s, i) => [customFees[i].id, s]));
+      setForm(f => ({
+        ...f,
+        fees: f.fees.map(fee => {
+          if (fee.feeStructureId) return fee;
+          const created = structureById.get(fee.id);
+          return created ? { ...fee, feeStructureId: created.id, name: created.name, nameFr: created.nameFr || '', amount: created.amount } : fee;
+        }),
+      }));
+      setSuccessMsg(lang === 'fr' ? `${customFees.length} frais enregistrés dans les structures.` : `${customFees.length} fees saved to structures.`);
+    } catch (e: any) {
+      setError(e.message || 'Failed');
+    } finally {
+      setSavingToStructures(false);
+    }
+  };
+  const customFeesCount = form.fees.filter(f => !f.feeStructureId).length;
 
   const filtered = programs.filter(p => {
     const matchDept = deptFilter === 'all' || p.department === deptFilter;
@@ -485,7 +570,7 @@ export function Programs() {
 
                 {/* Fee structure section */}
                 <div className="border-t border-gray-100 dark:border-gray-800 pt-5">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <DollarSign size={16} style={{ color: 'var(--btc-primary,#16a34a)' }} />
                       <span className="text-sm font-semibold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>
@@ -495,19 +580,48 @@ export function Programs() {
                         {form.fees.length} {lang === 'fr' ? 'frais' : 'fees'}
                       </span>
                     </div>
-                    <button onClick={addFee}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white hover:opacity-90 transition-all"
-                      style={{ background: 'var(--btc-primary,#16a34a)' }}>
-                      <Plus size={12} /> {lang === 'fr' ? 'Ajouter Frais' : 'Add Fee'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {feeStructures.length > 0 && (
+                        <select
+                          value=""
+                          onChange={e => { const id = e.target.value; if (id) { const fs = feeStructures.find(x => x.id === id); if (fs) addFeeFromStructure(fs); e.target.value = ''; } }}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:border-green-500"
+                        >
+                          <option value="">{lang === 'fr' ? 'Ajouter depuis une structure…' : 'Add from structure…'}</option>
+                          {feeStructures.filter(fs => !form.fees.some(f => f.feeStructureId === fs.id)).map(fs => (
+                            <option key={fs.id} value={fs.id}>{lang === 'fr' ? (fs.nameFr || fs.name) : fs.name} (${fs.amount})</option>
+                          ))}
+                        </select>
+                      )}
+                      <button onClick={addFee}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white hover:opacity-90 transition-all"
+                        style={{ background: 'var(--btc-primary,#16a34a)' }}>
+                        <Plus size={12} /> {lang === 'fr' ? 'Frais personnalisé' : 'Custom fee'}
+                      </button>
+                      {customFeesCount > 0 && (
+                        <button
+                          onClick={saveFeesToStructures}
+                          disabled={savingToStructures}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-green-600 text-green-600 dark:text-green-400 dark:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
+                        >
+                          {savingToStructures ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
+                          {lang === 'fr' ? `Enregistrer ${customFeesCount} frais en structure` : `Save ${customFeesCount} fee(s) to structures`}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {form.fees.length === 0 ? (
                     <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700">
                       <DollarSign size={24} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                      <p className="text-gray-400 text-xs">
-                        {lang === 'fr' ? 'Ajoutez les frais associés à ce programme' : 'Add fees associated with this program'}
+                      <p className="text-gray-400 text-xs mb-2">
+                        {lang === 'fr' ? 'Assignez des structures réutilisables (ex: Inscription, Carte étudiant) ou ajoutez un frais personnalisé.' : 'Assign reusable structures (e.g. Registration, Student card) or add a custom fee.'}
                       </p>
+                      {feeStructures.length === 0 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          {lang === 'fr' ? 'Créez d\'abord des structures dans « Structure des Frais ».' : 'Create structures in Fee Structures first.'}
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -516,53 +630,68 @@ export function Programs() {
                           className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                           <div className="flex items-center justify-between mb-3">
                             <span className="text-xs font-semibold text-gray-500">
-                              {lang === 'fr' ? `Frais #${idx + 1}` : `Fee #${idx + 1}`}
+                              {fee.feeStructureId ? (lang === 'fr' ? 'Structure' : 'From structure') : (lang === 'fr' ? `Frais #${idx + 1}` : `Fee #${idx + 1}`)}
                             </span>
                             <button onClick={() => removeFee(fee.id)}
                               className="text-gray-400 hover:text-red-500 transition-colors p-1">
                               <Trash2 size={13} />
                             </button>
                           </div>
-                          <div className="grid grid-cols-2 gap-3 mb-3">
-                            <div>
-                              <label className={labelCls}>{lang === 'fr' ? 'Nom (EN)' : 'Name (EN)'} *</label>
-                              <input value={fee.name} onChange={e => updateFee(fee.id, { name: e.target.value })}
-                                className={inputCls} placeholder="e.g. Registration Fee" />
+                          {fee.feeStructureId ? (
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                {lang === 'fr' ? (fee.nameFr || fee.name) : fee.name}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <label className="text-xs text-gray-500">{lang === 'fr' ? 'Montant (optionnel override)' : 'Amount (optional override)'}</label>
+                                <input type="number" value={fee.amount} onChange={e => updateFee(fee.id, { amount: Number(e.target.value) })}
+                                  className="w-24 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm" min={0} />
+                              </div>
                             </div>
-                            <div>
-                              <label className={labelCls}>{lang === 'fr' ? 'Nom (FR)' : 'Name (FR)'}</label>
-                              <input value={fee.nameFr} onChange={e => updateFee(fee.id, { nameFr: e.target.value })}
-                                className={inputCls} placeholder="ex: Frais d'inscription" />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-4 gap-3">
-                            <div>
-                              <label className={labelCls}>{lang === 'fr' ? 'Montant' : 'Amount'} *</label>
-                              <input type="number" value={fee.amount} onChange={e => updateFee(fee.id, { amount: Number(e.target.value) })}
-                                className={inputCls} min={0} />
-                            </div>
-                            <div>
-                              <label className={labelCls}>{lang === 'fr' ? 'Devise' : 'Currency'}</label>
-                              <select value={fee.currency} onChange={e => updateFee(fee.id, { currency: e.target.value })} className={inputCls}>
-                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <label className={labelCls}>Type</label>
-                              <select value={fee.type} onChange={e => updateFee(fee.id, { type: e.target.value as FeeType })} className={inputCls}>
-                                {FEE_TYPES.map(t => (
-                                  <option key={t.id} value={t.id}>{lang === 'fr' ? t.fr : t.en}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className={labelCls}>{lang === 'fr' ? 'Obligatoire' : 'Required'}</label>
-                              <select value={fee.required ? 'yes' : 'no'} onChange={e => updateFee(fee.id, { required: e.target.value === 'yes' })} className={inputCls}>
-                                <option value="yes">{lang === 'fr' ? 'Oui' : 'Yes'}</option>
-                                <option value="no">{lang === 'fr' ? 'Non' : 'No'}</option>
-                              </select>
-                            </div>
-                          </div>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                  <label className={labelCls}>{lang === 'fr' ? 'Nom (EN)' : 'Name (EN)'} *</label>
+                                  <input value={fee.name} onChange={e => updateFee(fee.id, { name: e.target.value })}
+                                    className={inputCls} placeholder="e.g. Registration Fee" />
+                                </div>
+                                <div>
+                                  <label className={labelCls}>{lang === 'fr' ? 'Nom (FR)' : 'Name (FR)'}</label>
+                                  <input value={fee.nameFr} onChange={e => updateFee(fee.id, { nameFr: e.target.value })}
+                                    className={inputCls} placeholder="ex: Frais d'inscription" />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-4 gap-3">
+                                <div>
+                                  <label className={labelCls}>{lang === 'fr' ? 'Montant' : 'Amount'} *</label>
+                                  <input type="number" value={fee.amount} onChange={e => updateFee(fee.id, { amount: Number(e.target.value) })}
+                                    className={inputCls} min={0} />
+                                </div>
+                                <div>
+                                  <label className={labelCls}>{lang === 'fr' ? 'Devise' : 'Currency'}</label>
+                                  <select value={fee.currency} onChange={e => updateFee(fee.id, { currency: e.target.value })} className={inputCls}>
+                                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className={labelCls}>Type</label>
+                                  <select value={fee.type} onChange={e => updateFee(fee.id, { type: e.target.value as FeeType })} className={inputCls}>
+                                    {FEE_TYPES.map(t => (
+                                      <option key={t.id} value={t.id}>{lang === 'fr' ? t.fr : t.en}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className={labelCls}>{lang === 'fr' ? 'Obligatoire' : 'Required'}</label>
+                                  <select value={fee.required ? 'yes' : 'no'} onChange={e => updateFee(fee.id, { required: e.target.value === 'yes' })} className={inputCls}>
+                                    <option value="yes">{lang === 'fr' ? 'Oui' : 'Yes'}</option>
+                                    <option value="no">{lang === 'fr' ? 'Non' : 'No'}</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </motion.div>
                       ))}
 

@@ -24,6 +24,9 @@ import { Departments } from './pages/dashboard/Departments';
 import { Reports } from './pages/dashboard/Reports';
 import { CertificatesAdmin } from './pages/dashboard/CertificatesAdmin';
 import { Programs } from './pages/dashboard/Programs';
+import { Promotions } from './pages/dashboard/Promotions';
+import { FeeStructures } from './pages/dashboard/FeeStructures';
+import { ExchangeRates } from './pages/dashboard/ExchangeRates';
 import { PortalDashboard } from './pages/portal/Dashboard';
 import { PortalMyCourses } from './pages/portal/MyCourses';
 import { PortalCertificates } from './pages/portal/Certificates';
@@ -93,6 +96,9 @@ export const router = createBrowserRouter([
       { path: 'reports', Component: Reports },
       { path: 'online-studies', Component: OnlineStudies },
       { path: 'programs', Component: Programs },
+      { path: 'promotions', Component: Promotions },
+      { path: 'fee-structures', Component: FeeStructures },
+      { path: 'exchange-rates', Component: ExchangeRates },
       { path: 'settings', Component: Settings },
     ],
   },

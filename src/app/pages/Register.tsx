@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
-import { User, BookOpen, Clock, CheckCircle, ArrowRight, ArrowLeft, GraduationCap, Phone, MapPin, Calendar, Users, AlertCircle, Mail, Loader2, Monitor, Car, Scissors } from 'lucide-react';
+import { User, BookOpen, Clock, CheckCircle, ArrowRight, ArrowLeft, GraduationCap, Phone, MapPin, Calendar, Users, AlertCircle, Mail, Loader2, Monitor, Car, Scissors, CalendarDays } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { apiBase } from '../../config/env';
 const btcLogo = '/images/btc-logo.png';
 
 // Fallback hardcoded programs — used only if API returns nothing
@@ -35,6 +36,19 @@ interface Program {
   fees: Fee[];
 }
 
+interface Promotion {
+  id: string;
+  name: string;
+  nameFr: string;
+  programId: string;
+  program?: { id: string; name: string; nameFr: string; fees?: Fee[] };
+  department?: string;
+  startDate: string;
+  endDate: string;
+  durationUnit: string;
+  status: string;
+}
+
 const DEPT_IDS = ['english', 'computer', 'driving', 'sewing'];
 
 const timeSlots = [
@@ -57,30 +71,35 @@ export function Register() {
   const [resent, setResent] = useState(false);
   const [form, setForm] = useState({
     fullName: '', email: '', password: '', phone: '', gender: '', address: '', dob: '', referral: '',
-    department: '', course: '', timeSlot: '',
+    department: '', course: '', timeSlot: '', promotionId: '',
   });
 
-  // Dynamic programs from API
+  // Dynamic programs and promotions from API
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        // Programs endpoint is public (no auth needed), use the anon key
-        const { projectId, publicAnonKey } = await import('/utils/supabase/info');
-        const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-36dfb453/programs`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
+        const { publicAnonKey } = await import('/utils/supabase/info');
+        const headers = { Authorization: `Bearer ${publicAnonKey}` };
+        const [progRes, promRes] = await Promise.all([
+          fetch(`${apiBase}/programs`, { headers }),
+          fetch(`${apiBase}/promotions`, { headers }),
+        ]);
+        if (progRes.ok) {
+          const data = await progRes.json();
           const active = (data.programs || []).filter((p: Program) => p.status === 'active');
           setPrograms(active.length > 0 ? active : FALLBACK_PROGRAMS);
-        } else {
-          setPrograms(FALLBACK_PROGRAMS);
+        } else setPrograms(FALLBACK_PROGRAMS);
+        if (promRes.ok) {
+          const data = await promRes.json();
+          const list = (data.promotions || []).filter((p: Promotion) => p.status === 'active' || p.status === 'upcoming');
+          setPromotions(list);
         }
       } catch (e) {
-        console.error('Failed to load programs:', e);
+        console.error('Failed to load programs/promotions:', e);
         setPrograms(FALLBACK_PROGRAMS);
       } finally {
         setLoadingPrograms(false);
@@ -120,7 +139,11 @@ export function Register() {
   const activeDepts = DEPT_IDS.filter(id => (programsByDept[id] || []).length > 0);
 
   const selectedDeptPrograms = programsByDept[form.department] || [];
-  const selectedProgram = programs.find(p => p.id === form.course);
+  const selectedPromotion = promotions.find(p => p.id === form.promotionId);
+  const selectedProgramFromPromo = selectedPromotion?.programs?.find((pr: any) => pr.id === form.course);
+  const selectedProgram = selectedProgramFromPromo
+    ? { id: selectedProgramFromPromo.id, name: selectedProgramFromPromo.name, nameFr: selectedProgramFromPromo.nameFr || '', department: selectedProgramFromPromo.department || '', status: 'active', fees: selectedProgramFromPromo.fees || [] }
+    : programs.find(p => p.id === form.course);
 
   // Calculate total fees for display
   const programTotalFees = (selectedProgram?.fees || []).reduce((sum, f) => sum + f.amount, 0);
@@ -130,7 +153,7 @@ export function Register() {
 
   const canNext = () => {
     if (step === 0) return form.fullName && form.phone && form.gender && form.dob && form.email && form.password && form.password.length >= 6;
-    if (step === 1) return form.department && form.course;
+    if (step === 1) return (form.promotionId && form.course && selectedPromotion) || (form.department && form.course);
     if (step === 2) return form.timeSlot;
     return true;
   };
@@ -156,12 +179,13 @@ export function Register() {
         setNeedsConfirmation(true);
       }
 
-      // Store pending payment info so the Payments page can pre-fill after login
+      // Store pending payment info so the Payments page can create enrollment and pre-fill after login
       localStorage.setItem('btc_pending_payment', JSON.stringify({
+        promotionId: form.promotionId || undefined,
         courseName: lang === 'fr' ? (selectedProgram?.nameFr || selectedProgram?.name) : selectedProgram?.name,
         courseId: selectedProgram?.id || form.course,
-        department: form.department,
-        departmentName: deptNames[form.department]?.[lang],
+        department: form.department || selectedPromotion?.department,
+        departmentName: deptNames[form.department || selectedPromotion?.department || '']?.[lang],
         price: programFeeSummary,
         timeSlot: timeSlots.find(s => s.id === form.timeSlot)?.label || '',
         studentName: form.fullName,
@@ -471,66 +495,139 @@ export function Register() {
                   </div>
                 ) : (
                   <>
-                    <div>
-                      <label className={labelCls}>{t('reg.department')} *</label>
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        {activeDepts.map(deptId => {
-                          const Icon = deptIcons[deptId] || BookOpen;
-                          const selected = form.department === deptId;
-                          return (
-                            <button key={deptId} onClick={() => setForm(f => ({ ...f, department: deptId, course: '' }))}
-                              className={`flex items-center gap-3 p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
-                                <Icon size={18} />
-                              </div>
-                              <div>
-                                <span className={`font-medium text-sm ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                                  {deptNames[deptId]?.[lang]}
-                                </span>
-                                <p className="text-xs text-gray-400">{(programsByDept[deptId] || []).length} {lang === 'fr' ? 'programmes' : 'programs'}</p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {selectedDeptPrograms.length > 0 && (
-                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                        <label className={labelCls}>{lang === 'fr' ? 'Programme / Niveau' : 'Program / Level'} *</label>
-                        <div className="space-y-2">
-                          {selectedDeptPrograms.map(program => {
-                            const selected = form.course === program.id;
-                            const totalFees = program.fees.reduce((s, f) => s + f.amount, 0);
-                            return (
-                              <button key={program.id} onClick={() => setForm(f => ({ ...f, course: program.id }))}
-                                className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-3 h-3 rounded-full border-2 transition-all ${selected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`} />
-                                  <div className="text-left">
-                                    <span className={`text-sm font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                                      {lang === 'fr' ? (program.nameFr || program.name) : program.name}
-                                    </span>
-                                    {program.fees.length > 0 && (
-                                      <p className="text-xs text-gray-400 mt-0.5">
-                                        {program.fees.length} {lang === 'fr' ? 'frais' : 'fees'}
+                    {promotions.length > 0 && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className={labelCls}>{lang === 'fr' ? 'Choisir une promotion' : 'Select a promotion'} *</label>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                            {lang === 'fr' ? 'Une promotion peut regrouper plusieurs programmes (dates de début et fin).' : 'A promotion can group multiple programs (start and end dates).'}
+                          </p>
+                          <div className="space-y-3">
+                            {promotions.map(prom => {
+                              const selected = form.promotionId === prom.id;
+                              const start = prom.startDate ? new Date(prom.startDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                              const end = prom.endDate ? new Date(prom.endDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                              const unit = prom.durationUnit === 'trimestre' ? (lang === 'fr' ? 'trimestre' : 'term') : prom.durationUnit;
+                              const programCount = (prom.programs || []).length;
+                              return (
+                                <button
+                                  key={prom.id}
+                                  onClick={() => setForm(f => ({ ...f, promotionId: prom.id, course: '', department: '' }))}
+                                  className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
+                                      <CalendarDays size={18} />
+                                    </div>
+                                    <div>
+                                      <p className={`font-semibold text-sm ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                                        {lang === 'fr' ? (prom.nameFr || prom.name) : prom.name}
                                       </p>
-                                    )}
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {programCount} {lang === 'fr' ? 'programme(s)' : 'program(s)'} · {start} → {end} ({unit})
+                                      </p>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-sm font-bold" style={{ color: 'var(--btc-primary,#2E8B57)' }}>
-                                    ${totalFees}
-                                  </span>
-                                  {program.fees.some(f => f.type === 'monthly') && (
-                                    <p className="text-xs text-gray-400">{lang === 'fr' ? '/mois' : '/month'}</p>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </motion.div>
+                        {form.promotionId && (() => {
+                          const selectedProm = promotions.find(p => p.id === form.promotionId);
+                          const progs = selectedProm?.programs || [];
+                          if (progs.length === 0) return null;
+                          return (
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                              <label className={labelCls}>{lang === 'fr' ? 'Choisir le programme' : 'Select program'} *</label>
+                              <div className="space-y-2">
+                                {progs.map((prog: { id: string; name: string; nameFr?: string; department?: string; fees?: Fee[] }) => {
+                                  const selected = form.course === prog.id;
+                                  const totalFees = (prog.fees || []).reduce((s: number, f: Fee) => s + f.amount, 0);
+                                  return (
+                                    <button
+                                      key={prog.id}
+                                      onClick={() => setForm(f => ({ ...f, course: prog.id, department: prog.department || '' }))}
+                                      className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
+                                    >
+                                      <span className={`text-sm font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                        {lang === 'fr' ? (prog.nameFr || prog.name) : prog.name}
+                                      </span>
+                                      {totalFees > 0 && (
+                                        <span className="text-sm font-bold shrink-0" style={{ color: 'var(--btc-primary,#16a34a)' }}>${totalFees}</span>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {promotions.length === 0 && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className={labelCls}>{t('reg.department')} *</label>
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            {activeDepts.map(deptId => {
+                              const Icon = deptIcons[deptId] || BookOpen;
+                              const selected = form.department === deptId;
+                              return (
+                                <button key={deptId} onClick={() => setForm(f => ({ ...f, department: deptId, course: '' }))}
+                                  className={`flex items-center gap-3 p-4 rounded-xl border transition-all text-left ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
+                                    <Icon size={18} />
+                                  </div>
+                                  <div>
+                                    <span className={`font-medium text-sm ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                      {deptNames[deptId]?.[lang]}
+                                    </span>
+                                    <p className="text-xs text-gray-400">{(programsByDept[deptId] || []).length} {lang === 'fr' ? 'programmes' : 'programs'}</p>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        {selectedDeptPrograms.length > 0 && (
+                          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                            <label className={labelCls}>{lang === 'fr' ? 'Programme / Niveau' : 'Program / Level'} *</label>
+                            <div className="space-y-2">
+                              {selectedDeptPrograms.map(program => {
+                                const selected = form.course === program.id;
+                                const totalFees = (program.fees || []).reduce((s, f) => s + f.amount, 0);
+                                return (
+                                  <button key={program.id} onClick={() => setForm(f => ({ ...f, course: program.id }))}
+                                    className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
+                                    <div className="flex items-center gap-3">
+                                      <div className={`w-3 h-3 rounded-full border-2 transition-all ${selected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`} />
+                                      <div className="text-left">
+                                        <span className={`text-sm font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                          {lang === 'fr' ? (program.nameFr || program.name) : program.name}
+                                        </span>
+                                        {(program.fees || []).length > 0 && (
+                                          <p className="text-xs text-gray-400 mt-0.5">
+                                            {(program.fees || []).length} {lang === 'fr' ? 'frais' : 'fees'}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-sm font-bold" style={{ color: 'var(--btc-primary,#2E8B57)' }}>
+                                        ${totalFees}
+                                      </span>
+                                      {(program.fees || []).some(f => f.type === 'monthly') && (
+                                        <p className="text-xs text-gray-400">{lang === 'fr' ? '/mois' : '/month'}</p>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
                     )}
 
                     {/* Show fee breakdown when a program is selected */}

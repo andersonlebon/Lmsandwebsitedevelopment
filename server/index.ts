@@ -8,8 +8,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
-import { eq, asc, desc, inArray } from 'drizzle-orm';
-import { db, programs, departments, profiles } from '../database/db/index';
+import { eq, asc, desc, inArray, and } from 'drizzle-orm';
+import { db, programs, departments, profiles, promotions, enrollments, feeStructures, programFees, promotionPrograms, exchangeRates } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -24,6 +24,130 @@ app.use(
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   })
 );
+
+// Exchange rates routes first so they are not shadowed by any parametric route
+async function getRatesFromDb(): Promise<{ usdToCdf: number | null; usdToRwf: number | null }> {
+  try {
+    const rows = await db.select().from(exchangeRates).where(eq(exchangeRates.baseCurrency, 'USD'));
+    const usdToCdf = rows.find(r => r.targetCurrency === 'CDF');
+    const usdToRwf = rows.find(r => r.targetCurrency === 'RWF');
+    return {
+      usdToCdf: usdToCdf != null && usdToCdf.rate != null ? Number(usdToCdf.rate) : null,
+      usdToRwf: usdToRwf != null && usdToRwf.rate != null ? Number(usdToRwf.rate) : null,
+    };
+  } catch {
+    return { usdToCdf: null, usdToRwf: null };
+  }
+}
+
+app.get('/exchange-rates', async (c) => {
+  try {
+    const rows = await db.select().from(exchangeRates).where(eq(exchangeRates.baseCurrency, 'USD')).orderBy(asc(exchangeRates.targetCurrency));
+    const rates = await getRatesFromDb();
+    return c.json({
+      rates: rows.map(r => ({
+        id: r.id,
+        baseCurrency: r.baseCurrency,
+        targetCurrency: r.targetCurrency,
+        rate: Number(r.rate),
+        source: r.source,
+        updatedAt: r.updatedAt,
+      })),
+      usdToCdf: rates.usdToCdf,
+      usdToRwf: rates.usdToRwf,
+    });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.put('/exchange-rates', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const list = Array.isArray(body.rates) ? body.rates : (body.targetCurrency != null ? [{ targetCurrency: body.targetCurrency, rate: body.rate }] : []);
+    for (const item of list) {
+      const target = String(item.targetCurrency || '').toUpperCase();
+      const rate = Number(item.rate);
+      if (!target || Number.isNaN(rate) || rate < 0) continue;
+      await db.insert(exchangeRates).values({
+        baseCurrency: 'USD',
+        targetCurrency: target,
+        rate: String(rate),
+        source: 'manual',
+      }).onConflictDoUpdate({
+        target: [exchangeRates.baseCurrency, exchangeRates.targetCurrency],
+        set: { rate: String(rate), source: 'manual', updatedAt: new Date() },
+      });
+    }
+    const rows = await db.select().from(exchangeRates).where(eq(exchangeRates.baseCurrency, 'USD')).orderBy(asc(exchangeRates.targetCurrency));
+    return c.json({
+      rates: rows.map(r => ({
+        id: r.id,
+        baseCurrency: r.baseCurrency,
+        targetCurrency: r.targetCurrency,
+        rate: Number(r.rate),
+        source: r.source,
+        updatedAt: r.updatedAt,
+      })),
+    });
+  } catch (e) {
+    console.error('Update exchange rates error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+const EXCHANGE_API_URL = 'https://open.er-api.com/v6/latest/USD';
+app.post('/exchange-rates/refresh', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const res = await fetch(EXCHANGE_API_URL);
+    if (!res.ok) throw new Error(`Exchange API returned ${res.status}`);
+    const data = await res.json() as { conversion_rates?: Record<string, number> };
+    const rates = data.conversion_rates || {};
+    const cdf = rates.CDF != null ? Number(rates.CDF) : null;
+    const rwf = rates.RWF != null ? Number(rates.RWF) : null;
+    if (cdf != null && !Number.isNaN(cdf)) {
+      await db.insert(exchangeRates).values({
+        baseCurrency: 'USD',
+        targetCurrency: 'CDF',
+        rate: String(cdf),
+        source: 'api',
+      }).onConflictDoUpdate({
+        target: [exchangeRates.baseCurrency, exchangeRates.targetCurrency],
+        set: { rate: String(cdf), source: 'api', updatedAt: new Date() },
+      });
+    }
+    if (rwf != null && !Number.isNaN(rwf)) {
+      await db.insert(exchangeRates).values({
+        baseCurrency: 'USD',
+        targetCurrency: 'RWF',
+        rate: String(rwf),
+        source: 'api',
+      }).onConflictDoUpdate({
+        target: [exchangeRates.baseCurrency, exchangeRates.targetCurrency],
+        set: { rate: String(rwf), source: 'api', updatedAt: new Date() },
+      });
+    }
+    const rows = await db.select().from(exchangeRates).where(eq(exchangeRates.baseCurrency, 'USD')).orderBy(asc(exchangeRates.targetCurrency));
+    return c.json({
+      rates: rows.map(r => ({
+        id: r.id,
+        baseCurrency: r.baseCurrency,
+        targetCurrency: r.targetCurrency,
+        rate: Number(r.rate),
+        source: r.source,
+        updatedAt: r.updatedAt,
+      })),
+      refreshed: { CDF: cdf, RWF: rwf },
+    });
+  } catch (e) {
+    console.error('Refresh exchange rates error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -164,7 +288,8 @@ app.get('/stats', async (c) => {
   }
 });
 
-function programRowToApi(row: any, departmentSlug?: string) {
+function programRowToApi(row: any, departmentSlug?: string, resolvedFees?: any[]) {
+  const fees = resolvedFees !== undefined ? resolvedFees : (row.fees ?? []);
   return {
     id: row.id,
     name: row.name,
@@ -173,10 +298,52 @@ function programRowToApi(row: any, departmentSlug?: string) {
     description: row.description ?? '',
     descriptionFr: row.descriptionFr ?? row.description_fr ?? '',
     status: row.status ?? 'active',
-    fees: row.fees ?? [],
+    fees,
     createdAt: row.createdAt ?? row.created_at,
     departments: row.department ? { id: row.department.id, name: row.department.name, name_fr: row.department.nameFr, slug: row.department.slug, color: row.department.color } : undefined,
   };
+}
+
+/** Resolve fees from program_fees + fee_structures; returns [] if none. */
+async function resolveProgramFees(programIds: string[]): Promise<Map<string, any[]>> {
+  if (programIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      pfId: programFees.id,
+      programId: programFees.programId,
+      amountOverride: programFees.amountOverride,
+      sortOrder: programFees.sortOrder,
+      fsId: feeStructures.id,
+      name: feeStructures.name,
+      nameFr: feeStructures.nameFr,
+      amount: feeStructures.amount,
+      currency: feeStructures.currency,
+      type: feeStructures.type,
+      required: feeStructures.required,
+      fsSortOrder: feeStructures.sortOrder,
+    })
+    .from(programFees)
+    .innerJoin(feeStructures, eq(programFees.feeStructureId, feeStructures.id))
+    .where(inArray(programFees.programId, programIds))
+    .orderBy(asc(programFees.sortOrder), asc(feeStructures.sortOrder));
+  const map = new Map<string, any[]>();
+  for (const r of rows) {
+    const list = map.get(r.programId) ?? [];
+    const amount = r.amountOverride != null ? Number(r.amountOverride) : Number(r.amount);
+    list.push({
+      id: r.pfId,
+      feeStructureId: r.fsId,
+      name: r.name ?? '',
+      nameFr: r.nameFr ?? '',
+      amount,
+      currency: r.currency ?? 'USD',
+      type: r.type ?? 'one-time',
+      required: r.required ?? true,
+      order: r.sortOrder ?? r.fsSortOrder ?? 0,
+    });
+    map.set(r.programId, list);
+  }
+  return map;
 }
 
 // GET /programs
@@ -202,7 +369,12 @@ app.get('/programs', async (c) => {
       .leftJoin(departments, eq(programs.departmentId, departments.id))
       .orderBy(asc(programs.sortOrder), asc(programs.name));
 
-    const list = rows.map((r) => programRowToApi(r, r.slug ?? undefined));
+    const programIds = rows.map((r) => r.id);
+    const feesMap = await resolveProgramFees(programIds);
+    const list = rows.map((r) => {
+      const resolved = feesMap.get(r.id);
+      return programRowToApi(r, r.slug ?? undefined, resolved);
+    });
     return c.json({ programs: list });
   } catch (e) {
     console.error('List programs error:', e);
@@ -235,7 +407,9 @@ app.get('/programs/:id', async (c) => {
       .where(eq(programs.id, id));
 
     if (!row) return c.json({ error: 'Program not found' }, 404);
-    return c.json({ program: programRowToApi(row, row.slug ?? undefined) });
+    const resolvedList = (await resolveProgramFees([id])).get(id);
+    const fees: any[] = resolvedList ?? (Array.isArray(row.fees) ? row.fees : []);
+    return c.json({ program: programRowToApi(row, row.slug ?? undefined, fees) });
   } catch (e) {
     console.error('Get program error:', e);
     return c.json({ error: `Failed to get program: ${(e as Error).message}` }, 500);
@@ -267,6 +441,20 @@ app.post('/programs', async (c) => {
     };
 
     const [inserted] = await db.insert(programs).values(insertPayload).returning();
+    const programId = inserted!.id;
+    if (Array.isArray(body.programFees) && body.programFees.length > 0) {
+      for (let i = 0; i < body.programFees.length; i++) {
+        const item = body.programFees[i];
+        if (item?.feeStructureId) {
+          await db.insert(programFees).values({
+            programId,
+            feeStructureId: item.feeStructureId,
+            amountOverride: item.amountOverride != null ? String(item.amountOverride) : null,
+            sortOrder: i,
+          });
+        }
+      }
+    }
     const [withDept] = await db
       .select({
         id: programs.id,
@@ -282,9 +470,11 @@ app.post('/programs', async (c) => {
       })
       .from(programs)
       .leftJoin(departments, eq(programs.departmentId, departments.id))
-      .where(eq(programs.id, inserted!.id));
+      .where(eq(programs.id, programId));
 
-    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined) });
+    const resolvedList = (await resolveProgramFees([programId])).get(programId);
+    const fees: any[] = resolvedList ?? (Array.isArray(withDept!.fees) ? withDept!.fees : []);
+    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees) });
   } catch (e) {
     console.error('Create program error:', e);
     return c.json({ error: `Failed to create program: ${(e as Error).message}` }, 500);
@@ -326,6 +516,21 @@ app.put('/programs/:id', async (c) => {
 
     if (!updated) return c.json({ error: 'Program not found' }, 404);
 
+    if (Array.isArray(body.programFees)) {
+      await db.delete(programFees).where(eq(programFees.programId, id));
+      for (let i = 0; i < body.programFees.length; i++) {
+        const item = body.programFees[i];
+        if (item?.feeStructureId) {
+          await db.insert(programFees).values({
+            programId: id,
+            feeStructureId: item.feeStructureId,
+            amountOverride: item.amountOverride != null ? String(item.amountOverride) : null,
+            sortOrder: i,
+          });
+        }
+      }
+    }
+
     const [withDept] = await db
       .select({
         id: programs.id,
@@ -343,7 +548,9 @@ app.put('/programs/:id', async (c) => {
       .leftJoin(departments, eq(programs.departmentId, departments.id))
       .where(eq(programs.id, id));
 
-    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined) });
+    const resolvedList = (await resolveProgramFees([id])).get(id);
+    const fees: any[] = resolvedList ?? (Array.isArray(withDept!.fees) ? withDept!.fees : []);
+    return c.json({ program: programRowToApi(withDept!, withDept!.slug ?? undefined, fees) });
   } catch (e) {
     console.error('Update program error:', e);
     return c.json({ error: `Failed to update program: ${(e as Error).message}` }, 500);
@@ -357,11 +564,138 @@ app.delete('/programs/:id', async (c) => {
     if (admin instanceof Response) return admin;
 
     const id = c.req.param('id');
+    await db.delete(programFees).where(eq(programFees.programId, id));
     await db.delete(programs).where(eq(programs.id, id));
     return c.json({ success: true });
   } catch (e) {
     console.error('Delete program error:', e);
     return c.json({ error: `Failed to delete program: ${(e as Error).message}` }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// FEE STRUCTURES (reusable: Inscription, Student card, etc.)
+// Amount is fixed (base currency); amountCdf/amountRwf auto from platform rates.
+// ──────────────────────────────────────
+function computeConvertedAmounts(amountUsd: number, rates: { usdToCdf: number | null; usdToRwf: number | null }): { amountCdf: string | null; amountRwf: string | null } {
+  return {
+    amountCdf: rates.usdToCdf != null && !Number.isNaN(rates.usdToCdf) ? String(Math.round(amountUsd * rates.usdToCdf)) : null,
+    amountRwf: rates.usdToRwf != null && !Number.isNaN(rates.usdToRwf) ? String(Math.round(amountUsd * rates.usdToRwf)) : null,
+  };
+}
+
+function feeStructureRowToApi(row: any) {
+  return {
+    id: row.id,
+    name: row.name ?? '',
+    nameFr: row.nameFr ?? row.name_fr ?? '',
+    amount: Number(row.amount ?? 0),
+    currency: row.currency ?? 'USD',
+    amountCdf: row.amountCdf != null ? Number(row.amountCdf) : null,
+    amountRwf: row.amountRwf != null ? Number(row.amountRwf) : null,
+    type: row.type ?? 'one-time',
+    required: row.required ?? true,
+    sortOrder: row.sortOrder ?? row.sort_order ?? 0,
+  };
+}
+
+app.get('/fee-structures', async (c) => {
+  try {
+    const rows = await db.select().from(feeStructures).orderBy(asc(feeStructures.sortOrder), asc(feeStructures.name));
+    return c.json({ feeStructures: rows.map(feeStructureRowToApi) });
+  } catch (e) {
+    console.error('List fee structures error:', e);
+    return c.json({ error: `Failed to list fee structures: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.get('/fee-structures/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const [row] = await db.select().from(feeStructures).where(eq(feeStructures.id, id));
+    if (!row) return c.json({ error: 'Fee structure not found' }, 404);
+    return c.json({ feeStructure: feeStructureRowToApi(row) });
+  } catch (e) {
+    console.error('Get fee structure error:', e);
+    return c.json({ error: `Failed to get fee structure: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.post('/fee-structures', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const currency = body.currency ?? 'USD';
+    const amount = Number(body.amount ?? 0);
+    const rates = await getRatesFromDb();
+    const { amountCdf, amountRwf } = currency === 'USD' ? computeConvertedAmounts(amount, rates) : { amountCdf: null, amountRwf: null };
+    const [inserted] = await db
+      .insert(feeStructures)
+      .values({
+        name: body.name ?? '',
+        nameFr: body.nameFr ?? body.name_fr ?? '',
+        amount: String(amount),
+        currency,
+        amountCdf,
+        amountRwf,
+        type: body.type ?? 'one-time',
+        required: body.required !== false,
+        sortOrder: body.sortOrder ?? body.sort_order ?? 0,
+      })
+      .returning();
+    return c.json({ feeStructure: feeStructureRowToApi(inserted!) });
+  } catch (e) {
+    console.error('Create fee structure error:', e);
+    return c.json({ error: `Failed to create fee structure: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.put('/fee-structures/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const currency = body.currency ?? 'USD';
+    const amount = body.amount != null ? Number(body.amount) : undefined;
+    const rates = await getRatesFromDb();
+    const { amountCdf, amountRwf } = currency === 'USD' && amount != null ? computeConvertedAmounts(amount, rates) : { amountCdf: undefined, amountRwf: undefined };
+    const [updated] = await db
+      .update(feeStructures)
+      .set({
+        name: body.name,
+        nameFr: body.nameFr ?? body.name_fr,
+        amount: amount != null ? String(amount) : undefined,
+        currency: body.currency,
+        amountCdf: amountCdf ?? undefined,
+        amountRwf: amountRwf ?? undefined,
+        type: body.type,
+        required: body.required,
+        sortOrder: body.sortOrder ?? body.sort_order,
+      } as any)
+      .where(eq(feeStructures.id, id))
+      .returning();
+    if (!updated) return c.json({ error: 'Fee structure not found' }, 404);
+    return c.json({ feeStructure: feeStructureRowToApi(updated) });
+  } catch (e) {
+    console.error('Update fee structure error:', e);
+    return c.json({ error: `Failed to update fee structure: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.delete('/fee-structures/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    await db.delete(programFees).where(eq(programFees.feeStructureId, id));
+    const result = await db.delete(feeStructures).where(eq(feeStructures.id, id)).returning({ id: feeStructures.id });
+    if (result.length === 0) return c.json({ error: 'Fee structure not found' }, 404);
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Delete fee structure error:', e);
+    return c.json({ error: `Failed to delete fee structure: ${(e as Error).message}` }, 500);
   }
 });
 
@@ -644,6 +978,254 @@ app.delete('/staff/:id', async (c) => {
   } catch (e) {
     console.error('Delete staff error:', e);
     return c.json({ error: `Failed to delete staff: ${(e as Error).message}` }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// PROMOTIONS: CRUD + public list (one promotion → many programs)
+// ──────────────────────────────────────
+function promotionRowToApi(row: any, programsList: any[] = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    nameFr: row.nameFr ?? row.name_fr ?? '',
+    programs: programsList,
+    startDate: row.startDate ?? row.start_date,
+    endDate: row.endDate ?? row.end_date,
+    durationUnit: row.durationUnit ?? row.duration_unit ?? 'months',
+    status: row.status ?? 'upcoming',
+    maxStudents: row.maxStudents ?? row.max_students,
+  };
+}
+
+async function getPromotionPrograms(promotionIds: string[]): Promise<Map<string, any[]>> {
+  if (promotionIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      promotionId: promotionPrograms.promotionId,
+      programId: programs.id,
+      name: programs.name,
+      nameFr: programs.nameFr,
+      slug: departments.slug,
+    })
+    .from(promotionPrograms)
+    .innerJoin(programs, eq(promotionPrograms.programId, programs.id))
+    .leftJoin(departments, eq(programs.departmentId, departments.id))
+    .where(inArray(promotionPrograms.promotionId, promotionIds))
+    .orderBy(asc(promotionPrograms.sortOrder), asc(programs.name));
+  const programIds = [...new Set(rows.map((r) => r.programId))];
+  const feesMap = await resolveProgramFees(programIds);
+  const map = new Map<string, any[]>();
+  for (const r of rows) {
+    const fees = feesMap.get(r.programId) ?? [];
+    const list = map.get(r.promotionId) ?? [];
+    list.push({ id: r.programId, name: r.name, nameFr: r.nameFr, department: r.slug ?? '', fees });
+    map.set(r.promotionId, list);
+  }
+  return map;
+}
+
+app.get('/promotions', async (c) => {
+  try {
+    const statusFilter = c.req.query('status');
+    const rows = await db
+      .select({
+        id: promotions.id,
+        name: promotions.name,
+        nameFr: promotions.nameFr,
+        startDate: promotions.startDate,
+        endDate: promotions.endDate,
+        durationUnit: promotions.durationUnit,
+        status: promotions.status,
+        maxStudents: promotions.maxStudents,
+        sortOrder: promotions.sortOrder,
+      })
+      .from(promotions)
+      .orderBy(asc(promotions.startDate), asc(promotions.name));
+    const promotionIds = rows.map((r) => r.id);
+    const programsByPromo = await getPromotionPrograms(promotionIds);
+    let list = rows.map((r) => ({
+      ...promotionRowToApi(r, programsByPromo.get(r.id) ?? []),
+    }));
+    if (statusFilter) list = list.filter((p: any) => p.status === statusFilter);
+    return c.json({ promotions: list });
+  } catch (e) {
+    console.error('List promotions error:', e);
+    return c.json({ error: `Failed to list promotions: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.get('/promotions/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const [row] = await db
+      .select({
+        id: promotions.id,
+        name: promotions.name,
+        nameFr: promotions.nameFr,
+        startDate: promotions.startDate,
+        endDate: promotions.endDate,
+        durationUnit: promotions.durationUnit,
+        status: promotions.status,
+        maxStudents: promotions.maxStudents,
+        sortOrder: promotions.sortOrder,
+      })
+      .from(promotions)
+      .where(eq(promotions.id, id));
+    if (!row) return c.json({ error: 'Promotion not found' }, 404);
+    const programsList = (await getPromotionPrograms([id])).get(id) ?? [];
+    return c.json({ promotion: promotionRowToApi(row, programsList) });
+  } catch (e) {
+    console.error('Get promotion error:', e);
+    return c.json({ error: `Failed to get promotion: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.post('/promotions', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    if (!body.name || !body.startDate || !body.endDate) {
+      return c.json({ error: 'name, startDate, endDate required' }, 400);
+    }
+    const programIds = Array.isArray(body.programIds) ? body.programIds : (body.programId ? [body.programId] : []);
+    const [inserted] = await db.insert(promotions).values({
+      name: body.name,
+      nameFr: body.nameFr ?? body.name_fr ?? '',
+      startDate: body.startDate,
+      endDate: body.endDate,
+      durationUnit: body.durationUnit ?? body.duration_unit ?? 'months',
+      status: body.status ?? 'upcoming',
+      maxStudents: body.maxStudents ?? 30,
+    }).returning();
+    if (!inserted) return c.json({ error: 'Insert failed' }, 500);
+    for (let i = 0; i < programIds.length; i++) {
+      await db.insert(promotionPrograms).values({
+        promotionId: inserted.id,
+        programId: programIds[i],
+        sortOrder: i,
+      });
+    }
+    const programsList = (await getPromotionPrograms([inserted.id])).get(inserted.id) ?? [];
+    return c.json({ promotion: promotionRowToApi(inserted, programsList) });
+  } catch (e) {
+    console.error('Create promotion error:', e);
+    return c.json({ error: `Failed to create promotion: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.put('/promotions/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    delete (body as any).id;
+    const [updated] = await db.update(promotions).set({
+      ...(body.name != null && { name: body.name }),
+      ...(body.nameFr != null && { nameFr: body.nameFr }),
+      ...(body.startDate != null && { startDate: body.startDate }),
+      ...(body.endDate != null && { endDate: body.endDate }),
+      ...(body.durationUnit != null && { durationUnit: body.durationUnit }),
+      ...(body.status != null && { status: body.status }),
+      ...(body.maxStudents != null && { maxStudents: body.maxStudents }),
+      updatedAt: new Date(),
+    }).where(eq(promotions.id, id)).returning();
+    if (!updated) return c.json({ error: 'Promotion not found' }, 404);
+    if (Array.isArray(body.programIds)) {
+      await db.delete(promotionPrograms).where(eq(promotionPrograms.promotionId, id));
+      for (let i = 0; i < body.programIds.length; i++) {
+        await db.insert(promotionPrograms).values({
+          promotionId: id,
+          programId: body.programIds[i],
+          sortOrder: i,
+        });
+      }
+    }
+    const programsList = (await getPromotionPrograms([id])).get(id) ?? [];
+    return c.json({ promotion: promotionRowToApi(updated, programsList) });
+  } catch (e) {
+    console.error('Update promotion error:', e);
+    return c.json({ error: `Failed to update promotion: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.delete('/promotions/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    await db.delete(promotionPrograms).where(eq(promotionPrograms.promotionId, id));
+    await db.delete(promotions).where(eq(promotions.id, id));
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Delete promotion error:', e);
+    return c.json({ error: `Failed to delete promotion: ${(e as Error).message}` }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// ENROLLMENTS: create (student enrolls in promotion)
+// ──────────────────────────────────────
+app.post('/enrollments', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json();
+    const promotionId = body.promotionId ?? body.promotion_id;
+    const programId = body.programId ?? body.program_id;
+    if (!promotionId) return c.json({ error: 'promotionId required' }, 400);
+    if (!programId) return c.json({ error: 'programId required (choose a program within the promotion)' }, 400);
+    const [promo] = await db
+      .select({ id: promotions.id, status: promotions.status })
+      .from(promotions)
+      .where(eq(promotions.id, promotionId));
+    if (!promo) return c.json({ error: 'Promotion not found' }, 404);
+    if (promo.status !== 'active' && promo.status !== 'upcoming') return c.json({ error: 'Promotion is not open for enrollment' }, 400);
+    const [link] = await db.select().from(promotionPrograms).where(and(eq(promotionPrograms.promotionId, promotionId), eq(promotionPrograms.programId, programId)));
+    if (!link) return c.json({ error: 'Program is not part of this promotion' }, 400);
+    const existing = await db.select().from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId))).limit(1);
+    if (existing.length > 0) return c.json({ error: 'Already enrolled in this promotion for this program' }, 400);
+    const [inserted] = await db.insert(enrollments).values({
+      studentId: auth.userId,
+      programId,
+      promotionId: promo.id,
+      status: 'active',
+    }).returning();
+    return c.json({ enrollment: inserted });
+  } catch (e) {
+    console.error('Create enrollment error:', e);
+    return c.json({ error: `Failed to create enrollment: ${(e as Error).message}` }, 500);
+  }
+});
+
+app.get('/enrollments/my', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const rows = await db
+      .select({
+        id: enrollments.id,
+        programId: enrollments.programId,
+        promotionId: enrollments.promotionId,
+        status: enrollments.status,
+        enrolledAt: enrollments.enrolledAt,
+        progName: programs.name,
+        progNameFr: programs.nameFr,
+        promoName: promotions.name,
+        promoNameFr: promotions.nameFr,
+        startDate: promotions.startDate,
+        endDate: promotions.endDate,
+      })
+      .from(enrollments)
+      .leftJoin(programs, eq(enrollments.programId, programs.id))
+      .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
+      .where(eq(enrollments.studentId, auth.userId));
+    return c.json({ enrollments: rows });
+  } catch (e) {
+    console.error('List my enrollments error:', e);
+    return c.json({ error: `Failed to list enrollments: ${(e as Error).message}` }, 500);
   }
 });
 
