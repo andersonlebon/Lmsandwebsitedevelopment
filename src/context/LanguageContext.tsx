@@ -224,6 +224,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.addStaff': { en: 'Add Staff', fr: 'Ajouter Personnel' },
   'dash.newCourse': { en: 'New Course', fr: 'Nouveau Cours' },
   'dash.viewFinance': { en: 'View Finance', fr: 'Voir Finances' },
+  'dash.viewEnrollments': { en: 'Enrollments', fr: 'Inscriptions' },
   'dash.revenue': { en: 'Revenue', fr: 'Revenus' },
   'dash.expenses': { en: 'Expenses', fr: 'Dépenses' },
 
@@ -245,6 +246,19 @@ const translations: Record<string, Record<Lang, string>> = {
   'portalDash.continue': { en: 'Continue', fr: 'Continuer' },
   'portalDash.inPerson': { en: 'In-Person', fr: 'En Personne' },
   'portalDash.virtual': { en: 'Virtual', fr: 'Virtuel' },
+  'progress.payment': { en: 'Payment', fr: 'Paiement' },
+  'progress.learning': { en: 'Learning', fr: 'Apprentissage' },
+  'progress.exercises': { en: 'Exercises & Tasks', fr: 'Exercices & Tâches' },
+  'progress.assessment': { en: 'Assessment', fr: 'Évaluation' },
+  'progress.assignment': { en: 'Assignment', fr: 'Devoir' },
+  'progress.paidOf': { en: 'paid of', fr: 'payé sur' },
+  'progress.notStarted': { en: 'Not started', fr: 'Non commencé' },
+  'progress.submitted': { en: 'Submitted', fr: 'Soumis' },
+  'progress.graded': { en: 'Graded', fr: 'Noté' },
+  'progress.inProgress': { en: 'In progress', fr: 'En cours' },
+  'progress.myProgress': { en: 'My Progress', fr: 'Mon Progrès' },
+  'progress.noEnrollments': { en: 'No enrollments yet.', fr: 'Aucune inscription.' },
+  'progress.browsePrograms': { en: 'Browse Programs', fr: 'Explorer les Programmes' },
 
   // ── Common ──
   'common.search': { en: 'Search', fr: 'Rechercher' },
@@ -411,6 +425,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'common.feeStructures': { en: 'Fee Structures', fr: 'Structure des Frais' },
   'common.enrollments': { en: 'Enrollments', fr: 'Inscriptions' },
   'common.exchangeRates': { en: 'Exchange Rates', fr: 'Taux de change' },
+  'common.myRecords': { en: 'My Records', fr: 'Mes Dossiers' },
+  'common.connect': { en: 'Connect', fr: 'Connecter' },
 
   // ── Staff ──
   'staff.title': { en: 'Staff Dashboard', fr: 'Tableau de Bord Personnel' },

@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Users, BookOpen, DollarSign, UserCog, TrendingUp, TrendingDown, ArrowRight, Clock, Loader2 } from 'lucide-react';
+import { Users, BookOpen, DollarSign, UserCog, TrendingUp, TrendingDown, ArrowRight, Clock, Loader2, Plus, UserPlus, ClipboardList, Wallet } from 'lucide-react';
 import { Link } from 'react-router';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../../context/AuthContext';
@@ -44,19 +44,46 @@ export function Overview() {
 
   const recentStudents: any[] = stats?.recentStudents || [];
 
+  const actionButtons = [
+    { label: t('dash.addStudent'), icon: UserPlus, href: '/dashboard/people/students', primary: true },
+    { label: t('dash.addStaff'), icon: Users, href: '/dashboard/people/staff', primary: false },
+    { label: t('dash.newCourse'), icon: BookOpen, href: '/dashboard/online-studies', primary: false },
+    { label: t('dash.viewEnrollments'), icon: ClipboardList, href: '/dashboard/academic/enrollments', primary: false },
+    { label: t('dash.viewFinance'), icon: Wallet, href: '/dashboard/finance/financing', primary: false },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header + Action buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins', fontWeight: 700 }}>
             {t('dash.goodMorning')}, {user.name || 'Admin'} 👋
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">{t('dash.whatsHappening')}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-xl">
-          <Clock size={14} />
-          <span>{new Date().toLocaleDateString()}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-xl">
+            <Clock size={14} />
+            <span>{new Date().toLocaleDateString()}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {actionButtons.map((action, i) => (
+              <Link
+                key={i}
+                to={action.href}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm ${
+                  action.primary
+                    ? 'text-white hover:opacity-95'
+                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+                style={action.primary ? { background: 'var(--btc-primary,#2E8B57)' } : {}}
+              >
+                <action.icon size={18} />
+                <span>{action.label}</span>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 

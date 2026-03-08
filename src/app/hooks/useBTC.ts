@@ -191,17 +191,43 @@ export function useMyPayments() {
 // ──────────────────────────────────────
 // ENROLLMENTS
 // ──────────────────────────────────────
+export interface EnrollmentProgress {
+  amountPaid: number;
+  totalAmount: number;
+  learningPercent: number;
+  exercisesCompleted: number;
+  exercisesTotal: number;
+  assessmentScore: number | null;
+  assessmentMax: number;
+  assignmentStatus: 'not_started' | 'in_progress' | 'submitted' | 'graded';
+  assignmentScore: number | null;
+}
+
 export interface Enrollment {
   id: string;
-  student_id: string;
-  program_id: string | null;
-  course_id: string | null;
+  student_id?: string;
+  studentId?: string;
+  program_id?: string | null;
+  programId?: string | null;
+  promotionId?: string | null;
+  course_id?: string | null;
   status: string;
-  enrolled_at: string;
-  completed_at: string | null;
-  progress: number;
-  grade: string;
+  enrolled_at?: string;
+  enrolledAt?: string;
+  completed_at?: string | null;
+  progress?: number;
+  grade?: string;
+  progName?: string;
+  progNameFr?: string;
+  promoName?: string;
+  promoNameFr?: string;
+  startDate?: string;
+  endDate?: string;
+  totalAmountToPay?: number;
+  progress?: number | EnrollmentProgress;
   student?: { id: string; name: string; email: string; student_id_number: string | null };
+  studentName?: string;
+  studentEmail?: string;
   programs?: { id: string; name: string; name_fr: string };
   courses?: { id: string; name: string; name_fr: string };
 }

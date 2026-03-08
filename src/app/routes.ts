@@ -43,6 +43,8 @@ import { PortalCoursePlayer } from './pages/portal/CoursePlayer';
 import { PortalPayments } from './pages/portal/Payments';
 import { PortalStudentID } from './pages/portal/StudentID';
 import { PortalAttendance } from './pages/portal/Attendance';
+import { RecordsLayout, RecordsRedirect } from './pages/portal/RecordsLayout';
+import { ConnectLayout, ConnectRedirect } from './pages/portal/ConnectLayout';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { StaffClasses } from './pages/staff/StaffClasses';
 import { StaffAttendance } from './pages/staff/StaffAttendance';
@@ -158,14 +160,36 @@ export const router = createBrowserRouter([
       { index: true, Component: PortalDashboard },
       { path: 'courses', Component: PortalMyCourses },
       { path: 'courses/:id', Component: PortalCoursePlayer },
-      { path: 'certificates', Component: PortalCertificates },
+      {
+        path: 'records',
+        Component: RecordsLayout,
+        children: [
+          { index: true, Component: RecordsRedirect },
+          { path: 'student-id', Component: PortalStudentID },
+          { path: 'attendance', Component: PortalAttendance },
+          { path: 'certificates', Component: PortalCertificates },
+        ],
+      },
       { path: 'payments', Component: PortalPayments },
-      { path: 'student-id', Component: PortalStudentID },
-      { path: 'attendance', Component: PortalAttendance },
-      { path: 'jobs', Component: PortalJobBoard },
-      { path: 'ai-assistant', Component: PortalAIAssistant },
-      { path: 'calendar', Component: PortalCalendar },
-      { path: 'community', Component: PortalCommunity },
+      {
+        path: 'connect',
+        Component: ConnectLayout,
+        children: [
+          { index: true, Component: ConnectRedirect },
+          { path: 'jobs', Component: PortalJobBoard },
+          { path: 'ai-assistant', Component: PortalAIAssistant },
+          { path: 'calendar', Component: PortalCalendar },
+          { path: 'community', Component: PortalCommunity },
+        ],
+      },
+      // Redirects for old paths (backward compatibility)
+      { path: 'student-id', Component: () => createElement(Navigate, { to: '/portal/records/student-id', replace: true }) },
+      { path: 'attendance', Component: () => createElement(Navigate, { to: '/portal/records/attendance', replace: true }) },
+      { path: 'certificates', Component: () => createElement(Navigate, { to: '/portal/records/certificates', replace: true }) },
+      { path: 'jobs', Component: () => createElement(Navigate, { to: '/portal/connect/jobs', replace: true }) },
+      { path: 'ai-assistant', Component: () => createElement(Navigate, { to: '/portal/connect/ai-assistant', replace: true }) },
+      { path: 'calendar', Component: () => createElement(Navigate, { to: '/portal/connect/calendar', replace: true }) },
+      { path: 'community', Component: () => createElement(Navigate, { to: '/portal/connect/community', replace: true }) },
     ],
   },
 

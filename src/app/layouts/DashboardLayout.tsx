@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 const btcLogo = '/images/btc-logo.png';
@@ -191,6 +192,7 @@ export function DashboardLayout() {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          <Breadcrumbs base="dashboard" />
           <Outlet />
         </main>
       </div>

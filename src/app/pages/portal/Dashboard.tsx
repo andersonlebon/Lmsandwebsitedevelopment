@@ -1,19 +1,43 @@
 import { motion } from 'motion/react';
 import { Link } from 'react-router';
-import { BookOpen, Clock, Award, TrendingUp, Play, Calendar, Bell, ArrowRight, Users } from 'lucide-react';
+import { BookOpen, Clock, Award, TrendingUp, Play, Calendar, Bell, ArrowRight, Loader2 } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, XAxis, Tooltip } from 'recharts';
 import { useAuth } from '../../../context/AuthContext';
 import { useLanguage } from '../../../context/LanguageContext';
+import { useMyEnrollments } from '../../hooks/useBTC';
+import type { Enrollment, EnrollmentProgress } from '../../hooks/useBTC';
 
 const progressData: any[] = [];
-const myCourses: any[] = [];
 const upcomingClasses: any[] = [];
 const notifications: any[] = [];
 
+function getProgress(e: Enrollment): EnrollmentProgress | null {
+  const p = e.progress;
+  if (!p || typeof p === 'number') return null;
+  return p as EnrollmentProgress;
+}
+
 export function PortalDashboard() {
   const { user: authUser } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  const { enrollments, isLoading } = useMyEnrollments();
   const user = authUser || JSON.parse(localStorage.getItem('btc_user') || '{"name":"Student"}');
+
+  const activeEnrollments = enrollments.filter((e: Enrollment) => e.status === 'active' || e.status === 'pending');
+  const enrolledCount = activeEnrollments.length;
+  const avgLearning = enrolledCount > 0
+    ? Math.round(activeEnrollments.reduce((sum: number, e: Enrollment) => sum + (getProgress(e)?.learningPercent ?? 0), 0) / enrolledCount)
+    : 0;
+  const avgScore = (() => {
+    const withScores = activeEnrollments
+      .map((e: Enrollment) => getProgress(e)?.assessmentScore)
+      .filter((s): s is number => typeof s === 'number');
+    if (withScores.length === 0) return null;
+    return Math.round(withScores.reduce((a, b) => a + b, 0) / withScores.length);
+  })();
+  const firstEnrollment = activeEnrollments[0];
+  const firstProgress = firstEnrollment ? getProgress(firstEnrollment) : null;
+  const progName = firstEnrollment ? (lang === 'fr' && firstEnrollment.progNameFr ? firstEnrollment.progNameFr : firstEnrollment.progName) : '';
 
   return (
     <div className="space-y-6">
@@ -30,10 +54,10 @@ export function PortalDashboard() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: t('portalDash.enrolledCourses'), value: '0', icon: BookOpen, color: '#16a34a', bg: 'rgba(22,163,74,0.1)' },
+          { label: t('portalDash.enrolledCourses'), value: isLoading ? '…' : String(enrolledCount), icon: BookOpen, color: '#16a34a', bg: 'rgba(22,163,74,0.1)' },
           { label: t('portalDash.hoursThisWeek'), value: '0', icon: Clock, color: '#2563eb', bg: 'rgba(37,99,235,0.1)' },
           { label: t('portalDash.certificates'), value: '0', icon: Award, color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
-          { label: t('portalDash.avgScore'), value: '—', icon: TrendingUp, color: '#ea580c', bg: 'rgba(234,88,12,0.1)' },
+          { label: t('portalDash.avgScore'), value: isLoading ? '…' : (avgScore != null ? String(avgScore) : '—'), icon: TrendingUp, color: '#ea580c', bg: 'rgba(234,88,12,0.1)' },
         ].map((stat, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
             className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700">
@@ -55,32 +79,46 @@ export function PortalDashboard() {
               {t('portalDash.viewAll')} <ArrowRight size={12} />
             </Link>
           </div>
-          {myCourses.length === 0 && (
+          {isLoading && (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-100 dark:border-gray-700 flex items-center justify-center">
+              <Loader2 size={28} className="animate-spin text-gray-400" />
+            </div>
+          )}
+          {!isLoading && activeEnrollments.length === 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-100 dark:border-gray-700 text-center">
               <BookOpen size={32} className="mx-auto mb-2 text-gray-300" />
-              <p className="text-sm text-gray-400">No courses enrolled yet.</p>
+              <p className="text-sm text-gray-400">{t('progress.noEnrollments')}</p>
               <Link to="/register" className="text-sm font-medium mt-2 inline-block" style={{ color: 'var(--btc-primary,#16a34a)' }}>
-                Browse Programs →
+                {t('progress.browsePrograms')} →
               </Link>
             </div>
           )}
-          {myCourses.map((course: any, i: number) => (
-            <motion.div key={course.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 hover:shadow-lg transition-all group">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${course.color}20` }}>
-                  <BookOpen size={22} style={{ color: course.color }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-gray-900 dark:text-white font-semibold text-sm">{course.title}</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{course.instructor}</p>
-                  <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ background: course.color, width: `${course.progress}%` }} />
+          {!isLoading && activeEnrollments.map((enr: Enrollment, i: number) => {
+            const prog = getProgress(enr);
+            const percent = prog?.learningPercent ?? 0;
+            const name = lang === 'fr' && enr.progNameFr ? enr.progNameFr : enr.progName;
+            return (
+              <motion.div key={enr.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 hover:shadow-lg transition-all group">
+                <Link to="/portal/courses" className="block">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(22,163,74,0.15)' }}>
+                      <BookOpen size={22} style={{ color: 'var(--btc-primary,#16a34a)' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-gray-900 dark:text-white font-semibold text-sm">{name}</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{enr.promoName}</p>
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ background: 'var(--btc-primary,#16a34a)', width: `${percent}%` }} />
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{percent}% {t('portalDash.continue').toLowerCase()}</p>
+                    </div>
+                    <Play size={18} className="text-gray-400 group-hover:text-green-600 shrink-0 mt-1" />
                   </div>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+                </Link>
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* Study Hours Chart */}

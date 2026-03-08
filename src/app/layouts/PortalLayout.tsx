@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 const btcLogo = '/images/btc-logo.png';
@@ -23,14 +24,9 @@ export function PortalLayout() {
   const navItems = [
     { href: '/portal', label: t('common.myDashboard'), icon: LayoutDashboard, exact: true },
     { href: '/portal/courses', label: t('common.myCourses'), icon: BookOpen },
-    { href: '/portal/student-id', label: t('common.studentID'), icon: IdCard },
-    { href: '/portal/attendance', label: t('common.myAttendance'), icon: ClipboardCheck },
+    { href: '/portal/records/student-id', label: t('common.myRecords'), icon: IdCard, prefix: '/portal/records' },
     { href: '/portal/payments', label: t('common.myPayments'), icon: CreditCard },
-    { href: '/portal/certificates', label: t('common.certificates'), icon: Award },
-    { href: '/portal/jobs', label: t('common.jobBoard'), icon: Briefcase },
-    { href: '/portal/ai-assistant', label: t('common.aiAssistant'), icon: Bot },
-    { href: '/portal/calendar', label: t('common.calendar'), icon: Calendar },
-    { href: '/portal/community', label: t('common.community'), icon: MessageSquare },
+    { href: '/portal/connect/jobs', label: t('common.connect'), icon: MessageSquare, prefix: '/portal/connect' },
   ];
 
   // Auth is now handled by ProtectedRoute — no manual redirect needed.
@@ -39,8 +35,11 @@ export function PortalLayout() {
     setMobileSidebarOpen(false);
   }, [location]);
 
-  const isActive = (href: string, exact?: boolean) =>
-    exact ? location.pathname === href : location.pathname === href;
+  const isActive = (item: { href: string; exact?: boolean; prefix?: string }) => {
+    if (item.exact) return location.pathname === item.href;
+    if (item.prefix) return location.pathname === item.prefix || location.pathname.startsWith(item.prefix + '/');
+    return location.pathname === item.href;
+  };
 
   const student = {
     name: authUser?.name || 'Student',
@@ -71,7 +70,7 @@ export function PortalLayout() {
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map(item => {
-          const active = isActive(item.href, item.exact);
+          const active = isActive(item);
           return (
             <Link
               key={item.href}
@@ -173,6 +172,7 @@ export function PortalLayout() {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          <Breadcrumbs base="portal" />
           <Outlet />
         </main>
       </div>

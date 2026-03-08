@@ -45,6 +45,13 @@ export const enrollmentStatusEnum = pgEnum('enrollment_status', [
   'suspended',
 ]);
 
+export const assignmentStatusEnum = pgEnum('assignment_status', [
+  'not_started',
+  'in_progress',
+  'submitted',
+  'graded',
+]);
+
 // ─── Departments ────────────────────────────────────────────────────────
 export const departments = pgTable('departments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -192,6 +199,22 @@ export const enrollments = pgTable('enrollments', {
   updatedAt: timestamptz('updated_at'),
 });
 
+// ─── Enrollment progress (per-enrollment: payment, learning, exercises, assessment, assignments)
+export const enrollmentProgress = pgTable('enrollment_progress', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  enrollmentId: uuid('enrollment_id').notNull().unique(),
+  amountPaid: numeric('amount_paid', { precision: 12, scale: 2 }).default('0'),
+  totalAmount: numeric('total_amount', { precision: 12, scale: 2 }).default('0'),
+  learningPercent: integer('learning_percent').default(0),
+  exercisesCompleted: integer('exercises_completed').default(0),
+  exercisesTotal: integer('exercises_total').default(0),
+  assessmentScore: numeric('assessment_score', { precision: 6, scale: 2 }),
+  assessmentMax: integer('assessment_max').default(100),
+  assignmentStatus: assignmentStatusEnum('assignment_status').default('not_started'),
+  assignmentScore: numeric('assignment_score', { precision: 6, scale: 2 }),
+  updatedAt: timestamptz('updated_at').defaultNow(),
+});
+
 // Relations
 export const departmentsRelations = relations(departments, ({ many }) => ({
   programs: many(programs),
@@ -225,8 +248,13 @@ export const promotionsRelations = relations(promotions, ({ many }) => ({
   enrollments: many(enrollments),
 }));
 
-export const enrollmentsRelations = relations(enrollments, ({ one }) => ({
+export const enrollmentProgressRelations = relations(enrollmentProgress, ({ one }) => ({
+  enrollment: one(enrollments, { fields: [enrollmentProgress.enrollmentId], references: [enrollments.id] }),
+}));
+
+export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
   student: one(profiles, { fields: [enrollments.studentId], references: [profiles.id] }),
   program: one(programs, { fields: [enrollments.programId], references: [programs.id] }),
   promotion: one(promotions, { fields: [enrollments.promotionId], references: [promotions.id] }),
+  progressRecord: one(enrollmentProgress),
 }));

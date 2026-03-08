@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { UserCheck, Loader2, CheckCircle, Clock, Filter } from 'lucide-react';
+import { UserCheck, Loader2, CheckCircle, Filter, X, TrendingUp } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
+
+interface EnrollmentProgress {
+  amountPaid: number;
+  totalAmount: number;
+  learningPercent: number;
+  exercisesCompleted: number;
+  exercisesTotal: number;
+  assessmentScore: number | null;
+  assessmentMax: number;
+  assignmentStatus: string;
+  assignmentScore: number | null;
+}
 
 interface Enrollment {
   id: string;
@@ -20,6 +32,7 @@ interface Enrollment {
   startDate?: string;
   endDate?: string;
   totalAmountToPay: number;
+  progress?: EnrollmentProgress;
 }
 
 const STATUS_LABELS: Record<string, { en: string; fr: string }> = {
@@ -37,6 +50,12 @@ export function Enrollments() {
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [progressModal, setProgressModal] = useState<Enrollment | null>(null);
+  const [progressForm, setProgressForm] = useState<EnrollmentProgress>({
+    amountPaid: 0, totalAmount: 0, learningPercent: 0, exercisesCompleted: 0, exercisesTotal: 0,
+    assessmentScore: null, assessmentMax: 100, assignmentStatus: 'not_started', assignmentScore: null,
+  });
+  const [savingProgress, setSavingProgress] = useState(false);
 
   useEffect(() => {
     load();
@@ -71,6 +90,55 @@ export function Enrollments() {
       setError(e.message || 'Failed to approve');
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const openProgressModal = (e: Enrollment) => {
+    setProgressModal(e);
+    const p = e.progress ?? {
+      amountPaid: 0, totalAmount: e.totalAmountToPay ?? 0, learningPercent: 0, exercisesCompleted: 0, exercisesTotal: 0,
+      assessmentScore: null, assessmentMax: 100, assignmentStatus: 'not_started', assignmentScore: null,
+    };
+    setProgressForm({
+      amountPaid: p.amountPaid ?? 0,
+      totalAmount: p.totalAmount ?? e.totalAmountToPay ?? 0,
+      learningPercent: p.learningPercent ?? 0,
+      exercisesCompleted: p.exercisesCompleted ?? 0,
+      exercisesTotal: p.exercisesTotal ?? 0,
+      assessmentScore: p.assessmentScore ?? null,
+      assessmentMax: p.assessmentMax ?? 100,
+      assignmentStatus: p.assignmentStatus ?? 'not_started',
+      assignmentScore: p.assignmentScore ?? null,
+    });
+  };
+
+  const saveProgress = async () => {
+    if (!progressModal) return;
+    setSavingProgress(true);
+    setError('');
+    try {
+      const body = {
+        amountPaid: progressForm.amountPaid,
+        totalAmount: progressForm.totalAmount,
+        learningPercent: progressForm.learningPercent,
+        exercisesCompleted: progressForm.exercisesCompleted,
+        exercisesTotal: progressForm.exercisesTotal,
+        assessmentScore: progressForm.assessmentScore,
+        assessmentMax: progressForm.assessmentMax,
+        assignmentStatus: progressForm.assignmentStatus,
+        assignmentScore: progressForm.assignmentScore,
+      };
+      const data = await apiFetch(`/enrollments/${progressModal.id}/progress`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        requireAuth: true,
+      });
+      setList(prev => prev.map(e => e.id === progressModal.id ? { ...e, progress: data.progress } : e));
+      setProgressModal(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to save progress');
+    } finally {
+      setSavingProgress(false);
     }
   };
 
@@ -149,11 +217,21 @@ export function Enrollments() {
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     {lang === 'fr' ? 'Total à payer' : 'Total to pay'}: <strong>${e.totalAmountToPay}</strong>
+                    {e.progress && (
+                      <> · Paid ${e.progress.amountPaid} · Learning {e.progress.learningPercent}%</>
+                    )}
                     {' · '}{formatDate(e.enrolledAt)}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => openProgressModal(e)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  <TrendingUp size={14} />
+                  {lang === 'fr' ? 'Progrès' : 'Progress'}
+                </button>
                 <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
                   e.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' :
                   e.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
@@ -175,6 +253,94 @@ export function Enrollments() {
               </div>
             </motion.div>
           ))}
+        </div>
+      )}
+
+      {/* Progress modal */}
+      {progressModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProgressModal(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>
+                {lang === 'fr' ? 'Progrès' : 'Progress'} — {progressModal.studentName || progressModal.studentEmail}
+              </h3>
+              <button onClick={() => setProgressModal(null)} className="p-1 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Montant payé' : 'Amount paid'}</label>
+                  <input type="number" min={0} step={0.01} value={progressForm.amountPaid} onChange={e => setProgressForm(f => ({ ...f, amountPaid: Number(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Total' : 'Total'}</label>
+                  <input type="number" min={0} step={0.01} value={progressForm.totalAmount} onChange={e => setProgressForm(f => ({ ...f, totalAmount: Number(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Apprentissage %' : 'Learning %'}</label>
+                <input type="number" min={0} max={100} value={progressForm.learningPercent} onChange={e => setProgressForm(f => ({ ...f, learningPercent: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Exercices complétés' : 'Exercises completed'}</label>
+                  <input type="number" min={0} value={progressForm.exercisesCompleted} onChange={e => setProgressForm(f => ({ ...f, exercisesCompleted: Number(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Total exercices' : 'Exercises total'}</label>
+                  <input type="number" min={0} value={progressForm.exercisesTotal} onChange={e => setProgressForm(f => ({ ...f, exercisesTotal: Number(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Score évaluation' : 'Assessment score'}</label>
+                  <input type="number" min={0} step={0.01} value={progressForm.assessmentScore ?? ''} onChange={e => setProgressForm(f => ({ ...f, assessmentScore: e.target.value === '' ? null : Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="—" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Max' : 'Max'}</label>
+                  <input type="number" min={0} value={progressForm.assessmentMax} onChange={e => setProgressForm(f => ({ ...f, assessmentMax: Number(e.target.value) || 100 }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Devoir' : 'Assignment'}</label>
+                  <select value={progressForm.assignmentStatus} onChange={e => setProgressForm(f => ({ ...f, assignmentStatus: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                    <option value="not_started">{lang === 'fr' ? 'Non commencé' : 'Not started'}</option>
+                    <option value="in_progress">{lang === 'fr' ? 'En cours' : 'In progress'}</option>
+                    <option value="submitted">{lang === 'fr' ? 'Soumis' : 'Submitted'}</option>
+                    <option value="graded">{lang === 'fr' ? 'Noté' : 'Graded'}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Note devoir' : 'Assignment score'}</label>
+                  <input type="number" min={0} step={0.01} value={progressForm.assignmentScore ?? ''} onChange={e => setProgressForm(f => ({ ...f, assignmentScore: e.target.value === '' ? null : Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="—" />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+              <button onClick={() => setProgressModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm">
+                {lang === 'fr' ? 'Annuler' : 'Cancel'}
+              </button>
+              <button onClick={saveProgress} disabled={savingProgress} className="px-4 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                {savingProgress ? <Loader2 size={14} className="animate-spin" /> : null}
+                {lang === 'fr' ? 'Enregistrer' : 'Save'}
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>

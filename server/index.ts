@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, feeStructures, programFees, promotionPrograms, exchangeRates } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -1240,7 +1240,7 @@ app.post('/enrollments', async (c) => {
       studentId: auth.userId,
       programId,
       promotionId: promo.id,
-      status: 'pending', // admin approves when payment confirmed
+      status: 'pending', // admin approves when payment confirmed; progress is created on approval
     }).returning();
     return c.json({ enrollment: inserted });
   } catch (e) {
@@ -1267,10 +1267,20 @@ app.get('/enrollments/my', async (c) => {
         promoNameFr: promotions.nameFr,
         startDate: promotions.startDate,
         endDate: promotions.endDate,
+        amountPaid: enrollmentProgress.amountPaid,
+        totalAmount: enrollmentProgress.totalAmount,
+        learningPercent: enrollmentProgress.learningPercent,
+        exercisesCompleted: enrollmentProgress.exercisesCompleted,
+        exercisesTotal: enrollmentProgress.exercisesTotal,
+        assessmentScore: enrollmentProgress.assessmentScore,
+        assessmentMax: enrollmentProgress.assessmentMax,
+        assignmentStatus: enrollmentProgress.assignmentStatus,
+        assignmentScore: enrollmentProgress.assignmentScore,
       })
       .from(enrollments)
       .leftJoin(programs, eq(enrollments.programId, programs.id))
       .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
+      .leftJoin(enrollmentProgress, eq(enrollments.id, enrollmentProgress.enrollmentId))
       .where(eq(enrollments.studentId, auth.userId));
     const programIds = [...new Set(rows.map((r) => r.programId).filter(Boolean))] as string[];
     const feesMap = await resolveProgramFees(programIds);
@@ -1290,6 +1300,17 @@ app.get('/enrollments/my', async (c) => {
         startDate: r.startDate,
         endDate: r.endDate,
         totalAmountToPay,
+        progress: {
+          amountPaid: r.amountPaid != null ? Number(r.amountPaid) : 0,
+          totalAmount: r.totalAmount != null ? Number(r.totalAmount) : totalAmountToPay,
+          learningPercent: r.learningPercent ?? 0,
+          exercisesCompleted: r.exercisesCompleted ?? 0,
+          exercisesTotal: r.exercisesTotal ?? 0,
+          assessmentScore: r.assessmentScore != null ? Number(r.assessmentScore) : null,
+          assessmentMax: r.assessmentMax ?? 100,
+          assignmentStatus: r.assignmentStatus ?? 'not_started',
+          assignmentScore: r.assignmentScore != null ? Number(r.assignmentScore) : null,
+        },
       };
     });
     return c.json({ enrollments: enrollmentsWithTotal });
@@ -1322,11 +1343,21 @@ app.get('/enrollments', async (c) => {
         promoNameFr: promotions.nameFr,
         startDate: promotions.startDate,
         endDate: promotions.endDate,
+        amountPaid: enrollmentProgress.amountPaid,
+        totalAmount: enrollmentProgress.totalAmount,
+        learningPercent: enrollmentProgress.learningPercent,
+        exercisesCompleted: enrollmentProgress.exercisesCompleted,
+        exercisesTotal: enrollmentProgress.exercisesTotal,
+        assessmentScore: enrollmentProgress.assessmentScore,
+        assessmentMax: enrollmentProgress.assessmentMax,
+        assignmentStatus: enrollmentProgress.assignmentStatus,
+        assignmentScore: enrollmentProgress.assignmentScore,
       })
       .from(enrollments)
       .leftJoin(profiles, eq(enrollments.studentId, profiles.id))
       .leftJoin(programs, eq(enrollments.programId, programs.id))
-      .leftJoin(promotions, eq(enrollments.promotionId, promotions.id));
+      .leftJoin(promotions, eq(enrollments.promotionId, promotions.id))
+      .leftJoin(enrollmentProgress, eq(enrollments.id, enrollmentProgress.enrollmentId));
     const rows = statusFilter
       ? await baseQuery.where(eq(enrollments.status, statusFilter)).orderBy(desc(enrollments.enrolledAt))
       : await baseQuery.orderBy(desc(enrollments.enrolledAt));
@@ -1351,6 +1382,17 @@ app.get('/enrollments', async (c) => {
         startDate: r.startDate,
         endDate: r.endDate,
         totalAmountToPay,
+        progress: {
+          amountPaid: r.amountPaid != null ? Number(r.amountPaid) : 0,
+          totalAmount: r.totalAmount != null ? Number(r.totalAmount) : totalAmountToPay,
+          learningPercent: r.learningPercent ?? 0,
+          exercisesCompleted: r.exercisesCompleted ?? 0,
+          exercisesTotal: r.exercisesTotal ?? 0,
+          assessmentScore: r.assessmentScore != null ? Number(r.assessmentScore) : null,
+          assessmentMax: r.assessmentMax ?? 100,
+          assignmentStatus: r.assignmentStatus ?? 'not_started',
+          assignmentScore: r.assignmentScore != null ? Number(r.assignmentScore) : null,
+        },
       };
     });
     return c.json({ enrollments: list });
@@ -1360,7 +1402,7 @@ app.get('/enrollments', async (c) => {
   }
 });
 
-// PATCH /enrollments/:id — admin: update status (e.g. approve: set to 'active')
+// PATCH /enrollments/:id — admin: update status (e.g. approve: set to 'active'); when approved, create progress if missing
 app.patch('/enrollments/:id', async (c) => {
   try {
     const admin = await requireAdmin(c);
@@ -1377,9 +1419,99 @@ app.patch('/enrollments/:id', async (c) => {
       .where(eq(enrollments.id, id))
       .returning();
     if (!updated) return c.json({ error: 'Enrollment not found' }, 404);
+    if (status === 'active') {
+      const [existingProgress] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, id));
+      if (!existingProgress && updated.programId) {
+        const [prog] = await db.select({ durationMonths: programs.durationMonths }).from(programs).where(eq(programs.id, updated.programId));
+        const fees = await resolveProgramFees([updated.programId]).then(m => m.get(updated.programId) ?? []);
+        const totalAmount = computeProgramTotalFees(fees, prog?.durationMonths ?? 0);
+        await db.insert(enrollmentProgress).values({
+          enrollmentId: id,
+          totalAmount: String(totalAmount),
+        });
+      }
+    }
     return c.json({ enrollment: updated });
   } catch (e) {
     console.error('Update enrollment error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// GET /enrollments/:id/progress — student (own) or admin
+app.get('/enrollments/:id/progress', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const id = c.req.param('id');
+    const [en] = await db.select({ id: enrollments.id, studentId: enrollments.studentId }).from(enrollments).where(eq(enrollments.id, id));
+    if (!en) return c.json({ error: 'Enrollment not found' }, 404);
+    const isAdmin = auth.role === 'admin';
+    if (!isAdmin && en.studentId !== auth.userId) return c.json({ error: 'Forbidden' }, 403);
+    const [prog] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, id));
+    if (!prog) return c.json({ progress: null }, 200);
+    return c.json({
+      progress: {
+        amountPaid: Number(prog.amountPaid ?? 0),
+        totalAmount: Number(prog.totalAmount ?? 0),
+        learningPercent: prog.learningPercent ?? 0,
+        exercisesCompleted: prog.exercisesCompleted ?? 0,
+        exercisesTotal: prog.exercisesTotal ?? 0,
+        assessmentScore: prog.assessmentScore != null ? Number(prog.assessmentScore) : null,
+        assessmentMax: prog.assessmentMax ?? 100,
+        assignmentStatus: prog.assignmentStatus ?? 'not_started',
+        assignmentScore: prog.assignmentScore != null ? Number(prog.assignmentScore) : null,
+        updatedAt: prog.updatedAt,
+      },
+    });
+  } catch (e) {
+    console.error('Get enrollment progress error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// PATCH /enrollments/:id/progress — admin (or staff) updates progress
+app.patch('/enrollments/:id/progress', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const [en] = await db.select({ id: enrollments.id }).from(enrollments).where(eq(enrollments.id, id));
+    if (!en) return c.json({ error: 'Enrollment not found' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (typeof body.amountPaid === 'number') updates.amountPaid = String(body.amountPaid);
+    if (typeof body.totalAmount === 'number') updates.totalAmount = String(body.totalAmount);
+    if (typeof body.learningPercent === 'number') updates.learningPercent = body.learningPercent;
+    if (typeof body.exercisesCompleted === 'number') updates.exercisesCompleted = body.exercisesCompleted;
+    if (typeof body.exercisesTotal === 'number') updates.exercisesTotal = body.exercisesTotal;
+    if (body.assessmentScore !== undefined) updates.assessmentScore = body.assessmentScore == null ? null : String(body.assessmentScore);
+    if (typeof body.assessmentMax === 'number') updates.assessmentMax = body.assessmentMax;
+    if (['not_started', 'in_progress', 'submitted', 'graded'].includes(body.assignmentStatus)) updates.assignmentStatus = body.assignmentStatus;
+    if (body.assignmentScore !== undefined) updates.assignmentScore = body.assignmentScore == null ? null : String(body.assignmentScore);
+    const [existing] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, id));
+    if (!existing) {
+      await db.insert(enrollmentProgress).values({ enrollmentId: id, ...updates });
+    } else {
+      await db.update(enrollmentProgress).set(updates as any).where(eq(enrollmentProgress.enrollmentId, id));
+    }
+    const [prog] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, id));
+    return c.json({
+      progress: prog ? {
+        amountPaid: Number(prog.amountPaid ?? 0),
+        totalAmount: Number(prog.totalAmount ?? 0),
+        learningPercent: prog.learningPercent ?? 0,
+        exercisesCompleted: prog.exercisesCompleted ?? 0,
+        exercisesTotal: prog.exercisesTotal ?? 0,
+        assessmentScore: prog.assessmentScore != null ? Number(prog.assessmentScore) : null,
+        assessmentMax: prog.assessmentMax ?? 100,
+        assignmentStatus: prog.assignmentStatus ?? 'not_started',
+        assignmentScore: prog.assignmentScore != null ? Number(prog.assignmentScore) : null,
+        updatedAt: prog.updatedAt,
+      } : null,
+    });
+  } catch (e) {
+    console.error('Update enrollment progress error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });
