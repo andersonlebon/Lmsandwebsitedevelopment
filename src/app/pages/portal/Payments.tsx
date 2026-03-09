@@ -108,20 +108,28 @@ export function PortalPayments() {
     }
   }, [user?.id]);
 
-  // Load programs and payments
+  // Load only programs the student is enrolled in, then payments
   useEffect(() => {
     (async () => {
       try {
-        const data = await apiFetch('/programs');
-        const activePrograms = (data.programs || []).filter((p: Program) => p.status === 'active');
-        setPrograms(activePrograms);
+        const [programsRes, enrollmentsRes] = await Promise.all([
+          apiFetch('/programs'),
+          apiFetch('/enrollments/my', { requireAuth: true }).catch(() => ({ enrollments: [] })),
+        ]);
+        const allPrograms = (programsRes.programs || []).filter((p: Program) => p.status === 'active');
+        const myEnrollments = (enrollmentsRes as { enrollments?: { programId?: string }[] }).enrollments || [];
+        const enrolledProgramIds = new Set(
+          myEnrollments.map((e: { programId?: string }) => e.programId).filter(Boolean) as string[]
+        );
+        // Students can only pay for programs they are enrolled in
+        const enrolledPrograms = allPrograms.filter((p: Program) => enrolledProgramIds.has(p.id));
+        setPrograms(enrolledPrograms);
 
-        // Auto-select if only one program or if pending payment from registration
         const pending = localStorage.getItem('btc_pending_payment');
         if (pending) {
           try {
             const pendingData = JSON.parse(pending);
-            const matched = activePrograms.find((p: Program) =>
+            const matched = enrolledPrograms.find((p: Program) =>
               p.id === pendingData.courseId ||
               p.name.toLowerCase() === (pendingData.courseName || '').toLowerCase() ||
               (p.nameFr || '').toLowerCase() === (pendingData.courseName || '').toLowerCase()
@@ -129,8 +137,8 @@ export function PortalPayments() {
             if (matched) setSelectedProgramId(matched.id);
           } catch (_) { /* ignore */ }
         }
-        if (activePrograms.length === 1) {
-          setSelectedProgramId((prev) => prev || activePrograms[0].id);
+        if (enrolledPrograms.length === 1) {
+          setSelectedProgramId((prev) => prev || enrolledPrograms[0].id);
         }
       } catch (e) {
         console.error('Failed to load programs:', e);
@@ -319,8 +327,8 @@ export function PortalPayments() {
               <BookOpen size={32} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
               <p className="text-gray-400 text-sm">
                 {lang === 'fr'
-                  ? 'Aucun programme disponible. L\'administrateur doit d\'abord creer les programmes et frais.'
-                  : 'No programs available. Admin must create programs and fees first.'}
+                  ? 'Vous ne pouvez payer que pour les programmes dans lesquels vous êtes inscrit. Inscrivez-vous à un programme depuis la page d\'inscription ou contactez l\'administration.'
+                  : 'You can only pay for programs you are enrolled in. Enroll in a program from the registration page or contact administration.'}
               </p>
             </div>
           ) : (

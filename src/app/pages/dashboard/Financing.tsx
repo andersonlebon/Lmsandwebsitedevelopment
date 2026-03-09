@@ -8,6 +8,7 @@ import {
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
+import { ExportReportButton } from '../../components/ExportReportButton';
 
 const DEPT_NAMES: Record<string, Record<string, string>> = {
   english: { en: 'English', fr: 'Anglais' },
@@ -178,9 +179,20 @@ export function Financing() {
             {lang === 'fr' ? 'Vue d\'ensemble financière et approbation des paiements' : 'Financial overview and payment approval'}
           </p>
         </div>
-        <button className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 transition-colors">
-          <Download size={15} /> {lang === 'fr' ? 'Exporter' : 'Export'}
-        </button>
+        <ExportReportButton
+          data={filtered.map(p => ({
+            Student: p.studentName ?? '',
+            Email: p.studentEmail ?? '',
+            Program: lang === 'fr' ? (p.programNameFr ?? p.programName) : p.programName,
+            Amount: p.amount,
+            Currency: p.currency ?? 'USD',
+            Status: p.status,
+            Method: p.methodLabel ?? p.method ?? '',
+            Date: p.createdAt ?? '',
+          }))}
+          filename="payments"
+          compact
+        />
       </div>
 
       {/* Summary Cards */}

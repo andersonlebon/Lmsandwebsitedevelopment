@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard, BookOpen, ClipboardCheck, FileUp,
-  Calendar, LogOut, Menu, X, Search, ChevronRight
+  Calendar, LogOut, Menu, X, Search, ChevronRight, Wallet, Inbox
 } from 'lucide-react';
 import { ThemeControls } from '../components/ThemeControls';
 import { NotificationsDropdown } from '../components/NotificationsDropdown';
@@ -23,8 +23,10 @@ export function StaffLayout() {
     { href: '/staff', label: t('common.overview'), icon: LayoutDashboard, exact: true },
     { href: '/staff/classes', label: t('staff.myClasses'), icon: BookOpen },
     { href: '/staff/attendance', label: t('staff.attendance'), icon: ClipboardCheck },
+    { href: '/staff/attendance-requests', label: t('common.attendanceRequests'), icon: Inbox },
     { href: '/staff/materials', label: t('staff.materials'), icon: FileUp },
     { href: '/staff/schedule', label: t('staff.schedule'), icon: Calendar },
+    { href: '/staff/wallet', label: t('common.wallet'), icon: Wallet },
   ];
 
   // Auth is now handled by ProtectedRoute — no manual redirect needed.

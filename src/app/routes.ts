@@ -17,6 +17,9 @@ import { NotFound } from './pages/NotFound';
 import { Overview } from './pages/dashboard/Overview';
 import { Students } from './pages/dashboard/Students';
 import { Staff } from './pages/dashboard/Staff';
+import { StaffSchedules } from './pages/dashboard/StaffSchedules';
+import { LecturerAttendanceReview } from './pages/dashboard/LecturerAttendanceReview';
+import { LecturerRates } from './pages/dashboard/LecturerRates';
 import { Financing } from './pages/dashboard/Financing';
 import { OnlineStudies } from './pages/dashboard/OnlineStudies';
 import { Settings } from './pages/dashboard/Settings';
@@ -29,6 +32,7 @@ import { FeeStructures } from './pages/dashboard/FeeStructures';
 import { ExchangeRates } from './pages/dashboard/ExchangeRates';
 import { Enrollments } from './pages/dashboard/Enrollments';
 import { LearningActivities } from './pages/dashboard/LearningActivities';
+import { Classes } from './pages/dashboard/Classes';
 import { PeopleLayout, PeopleRedirect } from './pages/dashboard/PeopleLayout';
 import { AcademicLayout, AcademicRedirect } from './pages/dashboard/AcademicLayout';
 import { FinanceLayout, FinanceRedirect } from './pages/dashboard/FinanceLayout';
@@ -51,6 +55,8 @@ import { StaffClasses } from './pages/staff/StaffClasses';
 import { StaffAttendance } from './pages/staff/StaffAttendance';
 import { StaffMaterials } from './pages/staff/StaffMaterials';
 import { StaffSchedule } from './pages/staff/StaffSchedule';
+import { StaffWallet } from './pages/staff/StaffWallet';
+import { StaffAttendanceRequests } from './pages/staff/StaffAttendanceRequests';
 import { createElement } from 'react';
 import { Navigate } from 'react-router';
 
@@ -104,6 +110,9 @@ export const router = createBrowserRouter([
           { index: true, Component: PeopleRedirect },
           { path: 'students', Component: Students },
           { path: 'staff', Component: Staff },
+          { path: 'staff-schedules', Component: StaffSchedules },
+          { path: 'lecturer-attendance', Component: LecturerAttendanceReview },
+          { path: 'lecturer-rates', Component: LecturerRates },
         ],
       },
       {
@@ -116,6 +125,7 @@ export const router = createBrowserRouter([
           { path: 'promotions', Component: Promotions },
           { path: 'fee-structures', Component: FeeStructures },
           { path: 'enrollments', Component: Enrollments },
+          { path: 'classes', Component: Classes },
           { path: 'learning', Component: LearningActivities },
         ],
       },
@@ -203,8 +213,10 @@ export const router = createBrowserRouter([
       { index: true, Component: StaffDashboard },
       { path: 'classes', Component: StaffClasses },
       { path: 'attendance', Component: StaffAttendance },
+      { path: 'attendance-requests', Component: StaffAttendanceRequests },
       { path: 'materials', Component: StaffMaterials },
       { path: 'schedule', Component: StaffSchedule },
+      { path: 'wallet', Component: StaffWallet },
     ],
   },
 

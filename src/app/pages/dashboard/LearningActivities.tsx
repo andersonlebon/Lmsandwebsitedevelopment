@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
-  BookOpen, Loader2, Plus, X, Edit2, Trash2, ListOrdered, Share2, CheckCircle,
+  BookOpen, Loader2, Plus, X, Edit2, Trash2, ListOrdered, Share2, CheckCircle, Clock,
   FileQuestion, Video, Music, Headphones, FileText, ToggleLeft, Link2, Type
 } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -83,6 +83,9 @@ export function LearningActivities() {
   const [addingItem, setAddingItem] = useState(false);
   const [promoModal, setPromoModal] = useState<Activity | null>(null);
   const [assignedPromoIds, setAssignedPromoIds] = useState<string[]>([]);
+  const [classModal, setClassModal] = useState<Activity | null>(null);
+  const [classes, setClasses] = useState<{ id: string; name: string; programName?: string; programNameFr?: string; departmentName?: string; dayOfWeek?: number; startTime?: string }[]>([]);
+  const [assignedClassIds, setAssignedClassIds] = useState<string[]>([]);
   const [gradeModal, setGradeModal] = useState<Submission | null>(null);
   const [gradeForm, setGradeForm] = useState({ score: '' as string | number, feedback: '' });
   const [saving, setSaving] = useState(false);
@@ -92,7 +95,14 @@ export function LearningActivities() {
   useEffect(() => {
     loadPrograms();
     loadPromotions();
+    loadClasses();
   }, []);
+  const loadClasses = async () => {
+    try {
+      const d = await apiFetch('/classes', { requireAuth: true });
+      setClasses(d.classes || []);
+    } catch (_) {}
+  };
   useEffect(() => {
     if (activityType) loadActivities();
     else loadSubmissions();
@@ -258,6 +268,32 @@ export function LearningActivities() {
       setAssignedPromoIds([]);
     }
   };
+  const openClass = async (a: Activity) => {
+    setClassModal(a);
+    try {
+      const d = await apiFetch(`/learning-activities/${a.id}/classes`, { requireAuth: true });
+      setAssignedClassIds(d.classIds || []);
+    } catch (_) {
+      setAssignedClassIds([]);
+    }
+  };
+  const saveClass = async () => {
+    if (!classModal) return;
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch(`/learning-activities/${classModal.id}/classes`, {
+        method: 'POST',
+        body: JSON.stringify({ classIds: assignedClassIds }),
+        requireAuth: true,
+      });
+      setClassModal(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to assign');
+    } finally {
+      setSaving(false);
+    }
+  };
   const savePromo = async () => {
     if (!promoModal) return;
     setSaving(true);
@@ -395,6 +431,7 @@ export function LearningActivities() {
                   <button onClick={() => openEdit(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('common.edit')}><Edit2 size={18} /></button>
                   <button onClick={() => openItems(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.manageItems')}><ListOrdered size={18} /></button>
                   <button onClick={() => openPromo(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.assignToPromotions')}><Share2 size={18} /></button>
+                  <button onClick={() => openClass(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.assignToClasses')}><Clock size={18} /></button>
                   <button onClick={() => deleteActivity(a.id)} className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"><Trash2 size={18} /></button>
                 </div>
               </motion.div>
@@ -487,6 +524,37 @@ export function LearningActivities() {
                 ))}
                 {items.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No items yet. Add one above.</p>}
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Assign classes modal */}
+      {classModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setClassModal(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4" style={{ fontFamily: 'Poppins' }}>{t('learning.assignToClasses')} — {classModal.title}</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {classes.map((cl) => (
+                <label key={cl.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={assignedClassIds.includes(cl.id)}
+                    onChange={e => {
+                      if (e.target.checked) setAssignedClassIds(prev => [...prev, cl.id]);
+                      else setAssignedClassIds(prev => prev.filter(id => id !== cl.id));
+                    }}
+                    className="rounded"
+                  />
+                  {cl.name} {cl.programName ? `— ${lang === 'fr' && cl.programNameFr ? cl.programNameFr : cl.programName}` : ''}
+                </label>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button onClick={() => setClassModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm">{t('common.cancel')}</button>
+              <button onClick={saveClass} disabled={saving} className="px-4 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                {saving && <Loader2 size={14} className="animate-spin" />}{t('common.save')}
+              </button>
             </div>
           </motion.div>
         </div>

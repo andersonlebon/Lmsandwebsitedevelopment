@@ -8,6 +8,7 @@ import {
 import { useLanguage } from '../../../context/LanguageContext';
 import { useAuth } from '../../../context/AuthContext';
 import { apiFetch } from '../../lib/api';
+import { ExportReportButton } from '../../components/ExportReportButton';
 
 type FeeType = 'one-time' | 'monthly' | 'per-term' | 'annual';
 
@@ -365,11 +366,25 @@ export function Programs() {
             {lang === 'fr' ? 'Gérez les programmes et leurs structures tarifaires' : 'Manage programs and their fee structures'}
           </p>
         </div>
-        <button onClick={openAdd}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-lg hover:opacity-90 transition-all"
-          style={{ background: 'var(--btc-primary,#16a34a)' }}>
-          <Plus size={16} /> {lang === 'fr' ? 'Nouveau Programme' : 'New Program'}
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportReportButton
+            data={filtered.map(p => ({
+              Name: p.name,
+              'Name (FR)': p.nameFr || '',
+              Department: p.department,
+              Status: p.status,
+              'Fees count': (p.fees || []).length,
+              'Total ($)': p.totalAmountToPay ?? (p.fees || []).reduce((s, f) => s + f.amount, 0),
+            }))}
+            filename="programs"
+            compact
+          />
+          <button onClick={openAdd}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-lg hover:opacity-90 transition-all"
+            style={{ background: 'var(--btc-primary,#16a34a)' }}>
+            <Plus size={16} /> {lang === 'fr' ? 'Nouveau Programme' : 'New Program'}
+          </button>
+        </div>
       </div>
 
       {/* Success message */}

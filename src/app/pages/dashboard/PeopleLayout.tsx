@@ -1,10 +1,13 @@
 import { Outlet, NavLink, Navigate } from 'react-router';
-import { Users, UserCog } from 'lucide-react';
+import { Users, UserCog, Calendar, ClipboardCheck, DollarSign } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
 const tabs = [
   { to: 'students', labelKey: 'common.students', icon: Users },
   { to: 'staff', labelKey: 'common.staff', icon: UserCog },
+  { to: 'staff-schedules', labelKey: 'common.staffSchedules', icon: Calendar },
+  { to: 'lecturer-attendance', labelKey: 'common.lecturerAttendance', icon: ClipboardCheck },
+  { to: 'lecturer-rates', labelKey: 'common.lecturerRates', icon: DollarSign },
 ];
 
 export function PeopleLayout() {

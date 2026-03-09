@@ -1,10 +1,22 @@
-import { useState } from 'react';
-import { motion } from 'motion/react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
-import { BookOpen, Play, Loader2, DollarSign, GraduationCap, ClipboardCheck, FileCheck, Send } from 'lucide-react';
+import { BookOpen, Play, Loader2, DollarSign, GraduationCap, ClipboardCheck, FileCheck, Send, X, CheckCircle } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useMyEnrollments } from '../../hooks/useBTC';
+import { apiFetch } from '../../lib/api';
 import type { Enrollment, EnrollmentProgress } from '../../hooks/useBTC';
+
+type Activity = {
+  id: string;
+  type: string;
+  title: string;
+  titleFr?: string;
+  description?: string;
+  maxScore?: number;
+  requiresSubmission: boolean;
+  submission?: { status: string; score: number | null; maxScore: number | null; submittedAt: string | null };
+};
 
 function getProgress(e: Enrollment): EnrollmentProgress | null {
   const p = e.progress;
@@ -25,6 +37,11 @@ export function PortalMyCourses() {
   const { t, lang } = useLanguage();
   const { enrollments, isLoading } = useMyEnrollments();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [activityModalId, setActivityModalId] = useState<string | null>(null);
+  const [activityDetail, setActivityDetail] = useState<{ activity: any; items: any[] } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const activeEnrollments = enrollments.filter((e: Enrollment) => e.status === 'active' || e.status === 'pending');
   const selected = activeId && activeEnrollments.find((e: Enrollment) => e.id === activeId);
@@ -32,6 +49,62 @@ export function PortalMyCourses() {
   const displayId = selected?.id ?? firstId;
   const displayEnr = displayId ? activeEnrollments.find((e: Enrollment) => e.id === displayId) : null;
   const progress = displayEnr ? getProgress(displayEnr) : null;
+
+  useEffect(() => {
+    if (!displayEnr?.id) {
+      setActivities([]);
+      return;
+    }
+    setActivitiesLoading(true);
+    apiFetch(`/enrollments/${displayEnr.id}/activities`, { requireAuth: true })
+      .then((res: { activities?: Activity[] }) => setActivities(res.activities || []))
+      .catch(() => setActivities([]))
+      .finally(() => setActivitiesLoading(false));
+  }, [displayEnr?.id]);
+
+  useEffect(() => {
+    if (!activityModalId) {
+      setActivityDetail(null);
+      return;
+    }
+    apiFetch(`/learning-activities/${activityModalId}`, { requireAuth: true })
+      .then((res: { activity?: any; items?: any[] }) => setActivityDetail({ activity: res.activity, items: res.items || [] }))
+      .catch(() => setActivityDetail(null));
+  }, [activityModalId]);
+
+  const handleSubmitActivity = async () => {
+    if (!displayEnr || !activityModalId) return;
+    setSubmitting(true);
+    try {
+      let subId: string | null = null;
+      const mySubs = await apiFetch('/activity-submissions/my', { requireAuth: true }) as { submissions?: { activityId: string; enrollmentId: string; id: string }[] };
+      const existing = (mySubs.submissions || []).find((s: any) => s.activityId === activityModalId && s.enrollmentId === displayEnr.id);
+      if (existing) {
+        subId = existing.id;
+      } else {
+        const created = await apiFetch('/activity-submissions', {
+          method: 'POST',
+          body: JSON.stringify({ enrollmentId: displayEnr.id, activityId: activityModalId }),
+          requireAuth: true,
+        }) as { submission?: { id: string } };
+        subId = created.submission?.id ?? null;
+      }
+      if (subId) {
+        await apiFetch(`/activity-submissions/${subId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'submitted' }),
+          requireAuth: true,
+        });
+      }
+      setActivityModalId(null);
+      const actRes = await apiFetch(`/enrollments/${displayEnr.id}/activities`, { requireAuth: true });
+      setActivities((actRes as { activities?: Activity[] }).activities || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -216,8 +289,139 @@ export function PortalMyCourses() {
               </div>
             </div>
           </div>
+
+          {/* Exercises, Assessments & Assignments — click to view content and submit */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 mt-5">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-700">
+              <h3 className="text-gray-900 dark:text-white font-semibold" style={{ fontFamily: 'Poppins' }}>
+                {lang === 'fr' ? 'Exercices, évaluations et devoirs' : 'Exercises, assessments & assignments'}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {lang === 'fr' ? 'Cliquez pour voir le contenu et soumettre.' : 'Click to view content and submit.'}
+              </p>
+            </div>
+            {activitiesLoading ? (
+              <div className="p-8 flex justify-center"><Loader2 size={24} className="animate-spin text-gray-400" /></div>
+            ) : activities.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-sm">
+                {lang === 'fr' ? 'Aucune activité assignée pour cette promotion.' : 'No activities assigned for this promotion.'}
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {activities.map((act) => {
+                  const sub = act.submission;
+                  const done = sub?.status === 'submitted' || sub?.status === 'graded';
+                  const typeLabel = act.type === 'exercise' ? (lang === 'fr' ? 'Exercice' : 'Exercise') : act.type === 'assessment' ? (lang === 'fr' ? 'Évaluation' : 'Assessment') : (lang === 'fr' ? 'Devoir' : 'Assignment');
+                  return (
+                    <div
+                      key={act.id}
+                      className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
+                      onClick={() => setActivityModalId(act.id)}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        act.type === 'exercise' ? 'bg-amber-100 dark:bg-amber-900/30' :
+                        act.type === 'assessment' ? 'bg-purple-100 dark:bg-purple-900/30' : 'bg-indigo-100 dark:bg-indigo-900/30'
+                      }`}>
+                        {act.type === 'exercise' ? <ClipboardCheck size={18} className="text-amber-600 dark:text-amber-400" /> :
+                         act.type === 'assessment' ? <FileCheck size={18} className="text-purple-600 dark:text-purple-400" /> :
+                         <Send size={18} className="text-indigo-600 dark:text-indigo-400" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {lang === 'fr' ? (act.titleFr || act.title) : act.title}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {typeLabel}
+                          {done && sub?.score != null && sub?.maxScore != null && ` — ${sub.score}/${sub.maxScore}`}
+                          {done && sub?.status === 'graded' && ` · ${lang === 'fr' ? 'Noté' : 'Graded'}`}
+                        </p>
+                      </div>
+                      {done ? <CheckCircle size={18} className="text-green-500 shrink-0" /> : <span className="text-xs text-gray-400 shrink-0">View →</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
+
+      {/* Activity content modal */}
+      <AnimatePresence>
+        {activityModalId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            onClick={() => setActivityModalId(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 shadow-xl"
+            >
+              <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>
+                  {activityDetail?.activity ? (lang === 'fr' ? (activityDetail.activity.titleFr || activityDetail.activity.title) : activityDetail.activity.title) : '…'}
+                </h3>
+                <button type="button" onClick={() => setActivityModalId(null)} className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={18} /></button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                {!activityDetail ? (
+                  <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-400" /></div>
+                ) : (
+                  <>
+                    {activityDetail.activity?.description && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {lang === 'fr' ? (activityDetail.activity.descriptionFr || activityDetail.activity.description) : activityDetail.activity.description}
+                      </p>
+                    )}
+                    {activityDetail.items.map((item: any, idx: number) => (
+                      <div key={item.id} className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
+                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          {lang === 'fr' ? 'Question' : 'Question'} {idx + 1} · {item.itemType}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {lang === 'fr' ? (item.questionTextFr || item.questionText) : item.questionText}
+                        </p>
+                        {Array.isArray(item.options) && item.options.length > 0 && (
+                          <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+                            {item.options.map((opt: string, i: number) => (
+                              <li key={i}>• {opt}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+              {activityDetail && displayEnr && (
+                <div className="p-5 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
+                  <button type="button" onClick={() => setActivityModalId(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
+                    {lang === 'fr' ? 'Fermer' : 'Close'}
+                  </button>
+                  {activityDetail.activity && !(activities.find(a => a.id === activityModalId)?.submission?.status === 'submitted' || activities.find(a => a.id === activityModalId)?.submission?.status === 'graded') && (
+                    <button
+                      type="button"
+                      onClick={handleSubmitActivity}
+                      disabled={submitting}
+                      className="px-4 py-2 rounded-xl text-sm font-medium text-white flex items-center gap-2"
+                      style={{ background: 'var(--btc-primary,#16a34a)' }}
+                    >
+                      {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                      {lang === 'fr' ? 'Soumettre' : 'Submit'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

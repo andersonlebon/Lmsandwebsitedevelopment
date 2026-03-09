@@ -254,6 +254,111 @@ export const activityPromotions = pgTable('activity_promotions', {
   activityPromoUnique: unique().on(t.activityId, t.promotionId),
 }));
 
+// ─── Activity ↔ Class (assign exercises/assessments/assignments to class, not only promotion)
+export const activityClasses = pgTable('activity_classes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  activityId: uuid('activity_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  assignedAt: timestamptz('assigned_at').defaultNow(),
+  assignedBy: uuid('assigned_by'),
+}, (t) => ({
+  activityClassUnique: unique().on(t.activityId, t.classId),
+}));
+
+// ─── Student attendance (request with location; lecturer approves/rejects)
+export const studentAttendanceRequests = pgTable('student_attendance_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull(),
+  enrollmentId: uuid('enrollment_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  teacherId: uuid('teacher_id').notNull(), // staff teaching this class
+  requestedAt: timestamptz('requested_at').defaultNow(),
+  latitude: numeric('latitude', { precision: 10, scale: 6 }),
+  longitude: numeric('longitude', { precision: 10, scale: 6 }),
+  address: text('address'),
+  status: text('status').notNull().default('pending'), // pending | approved | rejected
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamptz('reviewed_at'),
+  rejectReason: text('reject_reason'),
+  requestDate: date('request_date').notNull(), // calendar date of the class
+  createdAt: timestamptz('created_at').defaultNow(),
+});
+
+// ─── Staff schedules (admin assigns staff to classes per week)
+export const staffSchedules = pgTable('staff_schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  staffId: uuid('staff_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  weekStart: date('week_start').notNull(), // Monday of the week
+  dayOfWeek: integer('day_of_week').notNull(),
+  startTime: text('start_time').notNull(),
+  endTime: text('end_time').notNull(),
+  room: text('room'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamptz('created_at').defaultNow(),
+});
+
+// ─── Lecturer attendance (staff marks presence; admin approves → wallet credit)
+export const lecturerAttendance = pgTable('lecturer_attendance', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  staffId: uuid('staff_id').notNull(),
+  scheduleId: uuid('schedule_id'), // staff_schedules.id
+  classId: uuid('class_id').notNull(),
+  attendanceDate: date('attendance_date').notNull(),
+  status: text('status').notNull().default('pending'), // pending | approved | rejected
+  submittedAt: timestamptz('submitted_at').defaultNow(),
+  approvedBy: uuid('approved_by'),
+  approvedAt: timestamptz('approved_at'),
+  rejectReason: text('reject_reason'),
+  createdAt: timestamptz('created_at').defaultNow(),
+});
+
+// ─── Lecturer rate (admin sets rate per class/session for payroll)
+export const lecturerRates = pgTable('lecturer_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  staffId: uuid('staff_id').notNull(),
+  rateAmount: numeric('rate_amount', { precision: 10, scale: 2 }).notNull(),
+  currency: text('currency').notNull().default('USD'),
+  rateType: text('rate_type').notNull().default('per_class'), // per_class | per_hour
+  description: text('description'),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
+// ─── Lecturer wallet (balance; credited when admin approves attendance)
+export const lecturerWallets = pgTable('lecturer_wallets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  staffId: uuid('staff_id').notNull().unique(),
+  balance: numeric('balance', { precision: 12, scale: 2 }).notNull().default('0'),
+  currency: text('currency').notNull().default('USD'),
+  updatedAt: timestamptz('updated_at').defaultNow(),
+});
+
+export const lecturerWalletTransactions = pgTable('lecturer_wallet_transactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  walletId: uuid('wallet_id').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), // positive = credit, negative = debit
+  type: text('type').notNull(), // attendance_credit | advance | adjustment
+  referenceId: uuid('reference_id'), // e.g. lecturer_attendance.id
+  description: text('description'),
+  createdAt: timestamptz('created_at').defaultNow(),
+});
+
+// ─── Certificates (generated at end of promotion for enrolled students)
+export const certificates = pgTable('certificates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull(),
+  programId: uuid('program_id').notNull(),
+  promotionId: uuid('promotion_id').notNull(),
+  enrollmentId: uuid('enrollment_id'),
+  issuedAt: timestamptz('issued_at').defaultNow(),
+  certificateCode: text('certificate_code').unique(),
+  pdfUrl: text('pdf_url'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamptz('created_at').defaultNow(),
+});
+
 export const activityItems = pgTable('activity_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   activityId: uuid('activity_id').notNull(),
@@ -362,16 +467,23 @@ export const programsRelations = relations(programs, ({ one, many }) => ({
   learningActivities: many(learningActivities),
 }));
 
-export const programClassesRelations = relations(programClasses, ({ one }) => ({
+export const programClassesRelations = relations(programClasses, ({ one, many }) => ({
   program: one(programs, { fields: [programClasses.programId], references: [programs.id] }),
+  activityClasses: many(activityClasses),
 }));
 
 export const learningActivitiesRelations = relations(learningActivities, ({ one, many }) => ({
   program: one(programs, { fields: [learningActivities.programId], references: [programs.id] }),
   creator: one(profiles, { fields: [learningActivities.createdBy], references: [profiles.id] }),
   activityPromotions: many(activityPromotions),
+  activityClasses: many(activityClasses),
   items: many(activityItems),
   submissions: many(activitySubmissions),
+}));
+
+export const activityClassesRelations = relations(activityClasses, ({ one }) => ({
+  activity: one(learningActivities, { fields: [activityClasses.activityId], references: [learningActivities.id] }),
+  class: one(programClasses, { fields: [activityClasses.classId], references: [programClasses.id] }),
 }));
 
 export const activityPromotionsRelations = relations(activityPromotions, ({ one }) => ({
@@ -417,5 +529,37 @@ export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
 
 export const enrollmentProgressRelations = relations(enrollmentProgress, ({ one }) => ({
   enrollment: one(enrollments, { fields: [enrollmentProgress.enrollmentId], references: [enrollments.id] }),
+}));
+
+export const studentAttendanceRequestsRelations = relations(studentAttendanceRequests, ({ one }) => ({
+  student: one(profiles, { fields: [studentAttendanceRequests.studentId], references: [profiles.id] }),
+  enrollment: one(enrollments, { fields: [studentAttendanceRequests.enrollmentId], references: [enrollments.id] }),
+  class: one(programClasses, { fields: [studentAttendanceRequests.classId], references: [programClasses.id] }),
+  teacher: one(profiles, { fields: [studentAttendanceRequests.teacherId], references: [profiles.id] }),
+}));
+
+export const staffSchedulesRelations = relations(staffSchedules, ({ one }) => ({
+  staff: one(profiles, { fields: [staffSchedules.staffId], references: [profiles.id] }),
+  class: one(programClasses, { fields: [staffSchedules.classId], references: [programClasses.id] }),
+}));
+
+export const lecturerAttendanceRelations = relations(lecturerAttendance, ({ one }) => ({
+  staff: one(profiles, { fields: [lecturerAttendance.staffId], references: [profiles.id] }),
+  class: one(programClasses, { fields: [lecturerAttendance.classId], references: [programClasses.id] }),
+}));
+
+export const lecturerWalletsRelations = relations(lecturerWallets, ({ one, many }) => ({
+  staff: one(profiles, { fields: [lecturerWallets.staffId], references: [profiles.id] }),
+  transactions: many(lecturerWalletTransactions),
+}));
+
+export const lecturerWalletTransactionsRelations = relations(lecturerWalletTransactions, ({ one }) => ({
+  wallet: one(lecturerWallets, { fields: [lecturerWalletTransactions.walletId], references: [lecturerWallets.id] }),
+}));
+
+export const certificatesRelations = relations(certificates, ({ one }) => ({
+  student: one(profiles, { fields: [certificates.studentId], references: [profiles.id] }),
+  program: one(programs, { fields: [certificates.programId], references: [programs.id] }),
+  promotion: one(promotions, { fields: [certificates.promotionId], references: [promotions.id] }),
 }));
 

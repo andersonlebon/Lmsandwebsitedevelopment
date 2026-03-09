@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and, isNull, isNotNull, sql } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -690,9 +690,62 @@ function classRowToApi(row: any) {
 app.get('/classes', async (c) => {
   try {
     const programId = c.req.query('programId');
-    if (!programId) return c.json({ error: 'programId query required' }, 400);
-    const rows = await db.select().from(programClasses).where(eq(programClasses.programId, programId)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
-    return c.json({ classes: rows.map(classRowToApi) });
+    const departmentId = c.req.query('departmentId');
+    const promotionId = c.req.query('promotionId');
+    if (programId) {
+      const rows = await db.select().from(programClasses).where(eq(programClasses.programId, programId)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
+      return c.json({ classes: rows.map(classRowToApi) });
+    }
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const conditions = [];
+    if (departmentId) conditions.push(eq(departments.id, departmentId));
+    if (promotionId) {
+      const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
+      const progIds = progInPromo.map((p) => p.programId);
+      if (progIds.length === 0) return c.json({ classes: [] });
+      conditions.push(inArray(programs.id, progIds));
+    }
+    const rows = await db
+      .select({
+        id: programClasses.id,
+        programId: programClasses.programId,
+        name: programClasses.name,
+        startTime: programClasses.startTime,
+        endTime: programClasses.endTime,
+        dayOfWeek: programClasses.dayOfWeek,
+        room: programClasses.room,
+        sortOrder: programClasses.sortOrder,
+        progName: programs.name,
+        progNameFr: programs.nameFr,
+        deptId: departments.id,
+        deptName: departments.name,
+        deptNameFr: departments.nameFr,
+        deptSlug: departments.slug,
+      })
+      .from(programClasses)
+      .innerJoin(programs, eq(programClasses.programId, programs.id))
+      .innerJoin(departments, eq(programs.departmentId, departments.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(departments.sortOrder), asc(programs.name), asc(programClasses.sortOrder), asc(programClasses.startTime));
+    return c.json({
+      classes: rows.map((r) => ({
+        id: r.id,
+        programId: r.programId,
+        name: r.name,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        dayOfWeek: r.dayOfWeek,
+        room: r.room,
+        sortOrder: r.sortOrder,
+        programName: r.progName,
+        programNameFr: r.progNameFr,
+        departmentId: r.deptId,
+        departmentName: r.deptName,
+        departmentNameFr: r.deptNameFr,
+        departmentSlug: r.deptSlug,
+      })),
+    });
   } catch (e) {
     console.error('List classes error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -1758,6 +1811,79 @@ app.patch('/enrollments/:id/progress', async (c) => {
   }
 });
 
+// GET /enrollments/:id/activities — student (own enrollment): list activities assigned to promotion OR to enrollment's class
+app.get('/enrollments/:id/activities', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const id = c.req.param('id');
+    const [en] = await db.select({ id: enrollments.id, studentId: enrollments.studentId, promotionId: enrollments.promotionId, classId: enrollments.classId }).from(enrollments).where(eq(enrollments.id, id));
+    if (!en) return c.json({ error: 'Enrollment not found' }, 404);
+    if (en.studentId !== auth.userId) return c.json({ error: 'Forbidden' }, 403);
+    const activityRows: { id: string; type: any; title: string | null; titleFr: string | null; description: string | null; descriptionFr: string | null; maxScore: any; requiresSubmission: boolean | null }[] = [];
+    if (en.promotionId) {
+      const fromPromo = await db.select({
+        id: learningActivities.id,
+        type: learningActivities.type,
+        title: learningActivities.title,
+        titleFr: learningActivities.titleFr,
+        description: learningActivities.description,
+        descriptionFr: learningActivities.descriptionFr,
+        maxScore: learningActivities.maxScore,
+        requiresSubmission: learningActivities.requiresSubmission,
+      }).from(activityPromotions)
+        .innerJoin(learningActivities, eq(activityPromotions.activityId, learningActivities.id))
+        .where(eq(activityPromotions.promotionId, en.promotionId));
+      activityRows.push(...fromPromo);
+    }
+    if (en.classId) {
+      const fromClass = await db.select({
+        id: learningActivities.id,
+        type: learningActivities.type,
+        title: learningActivities.title,
+        titleFr: learningActivities.titleFr,
+        description: learningActivities.description,
+        descriptionFr: learningActivities.descriptionFr,
+        maxScore: learningActivities.maxScore,
+        requiresSubmission: learningActivities.requiresSubmission,
+      }).from(activityClasses)
+        .innerJoin(learningActivities, eq(activityClasses.activityId, learningActivities.id))
+        .where(eq(activityClasses.classId, en.classId));
+      const seen = new Set(activityRows.map((r) => r.id));
+      for (const r of fromClass) if (!seen.has(r.id)) { seen.add(r.id); activityRows.push(r); }
+    }
+    const activityIds = activityRows.map((r) => r.id);
+    const submissions = activityIds.length === 0 ? [] : await db.select({
+      activityId: activitySubmissions.activityId,
+      status: activitySubmissions.status,
+      score: activitySubmissions.score,
+      maxScore: activitySubmissions.maxScore,
+      submittedAt: activitySubmissions.submittedAt,
+    }).from(activitySubmissions).where(and(eq(activitySubmissions.enrollmentId, id), inArray(activitySubmissions.activityId, activityIds)));
+    const subByActivity = new Map(submissions.map((s) => [s.activityId, s]));
+    const activities = activityRows
+      .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+      .map((r) => {
+        const sub = subByActivity.get(r.id);
+        return {
+          id: r.id,
+          type: r.type,
+          title: r.title,
+          titleFr: r.titleFr,
+          description: r.description ?? undefined,
+          descriptionFr: r.descriptionFr ?? undefined,
+          maxScore: r.maxScore != null ? Number(r.maxScore) : undefined,
+          requiresSubmission: r.requiresSubmission ?? false,
+          submission: sub ? { status: sub.status, score: sub.score != null ? Number(sub.score) : null, maxScore: sub.maxScore != null ? Number(sub.maxScore) : null, submittedAt: sub.submittedAt } : null,
+        };
+      });
+    return c.json({ activities });
+  } catch (e) {
+    console.error('Enrollment activities error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 // ──────────────────────────────────────
 // LEARNING ACTIVITIES (exercises, assessments, assignments)
 // ──────────────────────────────────────
@@ -1837,15 +1963,25 @@ app.post('/learning-activities', async (c) => {
 
 app.get('/learning-activities/:id', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const id = c.req.param('id');
     const [act] = await db.select().from(learningActivities).where(eq(learningActivities.id, id));
     if (!act) return c.json({ error: 'Activity not found' }, 404);
+    const isAdmin = auth.role === 'admin';
+    if (!isAdmin) {
+      const myEnrollments = await db.select({ promotionId: enrollments.promotionId, classId: enrollments.classId }).from(enrollments).where(eq(enrollments.studentId, auth.userId));
+      const myPromoIds = new Set(myEnrollments.map((e) => e.promotionId).filter(Boolean));
+      const myClassIds = new Set(myEnrollments.map((e) => e.classId).filter(Boolean));
+      const assignedPromo = await db.select({ promotionId: activityPromotions.promotionId }).from(activityPromotions).where(eq(activityPromotions.activityId, id));
+      const assignedClass = await db.select({ classId: activityClasses.classId }).from(activityClasses).where(eq(activityClasses.activityId, id));
+      const hasAccess = assignedPromo.some((a) => myPromoIds.has(a.promotionId)) || assignedClass.some((a) => myClassIds.has(a.classId));
+      if (!hasAccess) return c.json({ error: 'You do not have access to this activity' }, 403);
+    }
     const items = await db.select().from(activityItems).where(eq(activityItems.activityId, id)).orderBy(asc(activityItems.sortOrder));
     const promoLinks = await db.select({ promotionId: activityPromotions.promotionId }).from(activityPromotions).where(eq(activityPromotions.activityId, id));
     const [prog] = act.programId ? await db.select({ name: programs.name, nameFr: programs.nameFr }).from(programs).where(eq(programs.id, act.programId)) : [null];
-    return c.json({
+    const payload: Record<string, unknown> = {
       activity: {
         ...act,
         maxScore: act.maxScore != null ? Number(act.maxScore) : 0,
@@ -1856,8 +1992,9 @@ app.get('/learning-activities/:id', async (c) => {
         ...i,
         maxScore: i.maxScore != null ? Number(i.maxScore) : 1,
       })),
-      promotionIds: promoLinks.map((p) => p.promotionId),
-    });
+    };
+    if (isAdmin) (payload as any).promotionIds = promoLinks.map((p) => p.promotionId);
+    return c.json(payload);
   } catch (e) {
     console.error('Get learning activity error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -1904,6 +2041,7 @@ app.delete('/learning-activities/:id', async (c) => {
     await db.delete(activitySubmissions).where(eq(activitySubmissions.activityId, id));
     await db.delete(activityItems).where(eq(activityItems.activityId, id));
     await db.delete(activityPromotions).where(eq(activityPromotions.activityId, id));
+    await db.delete(activityClasses).where(eq(activityClasses.activityId, id));
     const result = await db.delete(learningActivities).where(eq(learningActivities.id, id)).returning({ id: learningActivities.id });
     if (result.length === 0) return c.json({ error: 'Activity not found' }, 404);
     return c.json({ success: true });
@@ -1915,9 +2053,18 @@ app.delete('/learning-activities/:id', async (c) => {
 
 app.get('/learning-activities/:id/items', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const id = c.req.param('id');
+    if (auth.role !== 'admin') {
+      const myEnrollments = await db.select({ promotionId: enrollments.promotionId, classId: enrollments.classId }).from(enrollments).where(eq(enrollments.studentId, auth.userId));
+      const myPromoIds = new Set(myEnrollments.map((e) => e.promotionId).filter(Boolean));
+      const myClassIds = new Set(myEnrollments.map((e) => e.classId).filter(Boolean));
+      const assignedPromo = await db.select({ promotionId: activityPromotions.promotionId }).from(activityPromotions).where(eq(activityPromotions.activityId, id));
+      const assignedClass = await db.select({ classId: activityClasses.classId }).from(activityClasses).where(eq(activityClasses.activityId, id));
+      const hasAccess = assignedPromo.some((a) => myPromoIds.has(a.promotionId)) || assignedClass.some((a) => myClassIds.has(a.classId));
+      if (!hasAccess) return c.json({ error: 'Forbidden' }, 403);
+    }
     const items = await db.select().from(activityItems).where(eq(activityItems.activityId, id)).orderBy(asc(activityItems.sortOrder));
     return c.json({ items: items.map((i) => ({ ...i, maxScore: i.maxScore != null ? Number(i.maxScore) : 1 })) });
   } catch (e) {
@@ -2040,6 +2187,55 @@ app.delete('/learning-activities/:id/promotions/:promotionId', async (c) => {
     return c.json({ success: true });
   } catch (e) {
     console.error('Unassign activity from promotion error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.get('/learning-activities/:id/classes', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const rows = await db.select({ classId: activityClasses.classId }).from(activityClasses).where(eq(activityClasses.activityId, id));
+    return c.json({ classIds: rows.map((r) => r.classId) });
+  } catch (e) {
+    console.error('List activity classes error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/learning-activities/:id/classes', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const classIds = Array.isArray(body.classIds) ? body.classIds : (body.classId ? [body.classId] : []);
+    for (const classId of classIds) {
+      await db.insert(activityClasses).values({
+        activityId: id,
+        classId,
+        assignedBy: (admin as any).userId,
+      }).onConflictDoNothing({ target: [activityClasses.activityId, activityClasses.classId] });
+    }
+    const rows = await db.select({ classId: activityClasses.classId }).from(activityClasses).where(eq(activityClasses.activityId, id));
+    return c.json({ classIds: rows.map((r) => r.classId) });
+  } catch (e) {
+    console.error('Assign activity to classes error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.delete('/learning-activities/:id/classes/:classId', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const classId = c.req.param('classId');
+    await db.delete(activityClasses).where(and(eq(activityClasses.activityId, id), eq(activityClasses.classId, classId)));
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Unassign activity from class error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });
@@ -2185,9 +2381,443 @@ app.patch('/activity-submissions/:id', async (c) => {
       }
     }
     const [updated] = await db.select().from(activitySubmissions).where(eq(activitySubmissions.id, id));
+    if (updated?.enrollmentId && (updated.status === 'submitted' || updated.status === 'graded')) {
+      const [act] = await db.select({ type: learningActivities.type }).from(learningActivities).where(eq(learningActivities.id, updated.activityId));
+      const [existingProg] = await db.select().from(enrollmentProgress).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+      const score = updated.score != null ? Number(updated.score) : null;
+      const maxScore = updated.maxScore != null ? Number(updated.maxScore) : null;
+      if (act?.type === 'exercise') {
+        const exercisesCompleted = (existingProg?.exercisesCompleted ?? 0) + 1;
+        const exercisesTotal = Math.max(existingProg?.exercisesTotal ?? 0, exercisesCompleted);
+        const updates: Record<string, unknown> = { exercisesCompleted, exercisesTotal, updatedAt: new Date() };
+        if (existingProg) await db.update(enrollmentProgress).set(updates as any).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+        else await db.insert(enrollmentProgress).values({ enrollmentId: updated.enrollmentId, ...updates });
+      } else if (act?.type === 'assessment' && score != null && maxScore != null) {
+        const updates: Record<string, unknown> = { assessmentScore: String(score), assessmentMax: maxScore, updatedAt: new Date() };
+        if (existingProg) await db.update(enrollmentProgress).set(updates as any).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+        else await db.insert(enrollmentProgress).values({ enrollmentId: updated.enrollmentId, ...updates });
+      } else if (act?.type === 'assignment') {
+        const updates: Record<string, unknown> = {
+          assignmentStatus: updated.status === 'graded' ? 'graded' : 'submitted',
+          updatedAt: new Date(),
+        };
+        if (score != null) (updates as any).assignmentScore = String(score);
+        if (existingProg) await db.update(enrollmentProgress).set(updates as any).where(eq(enrollmentProgress.enrollmentId, updated.enrollmentId));
+        else await db.insert(enrollmentProgress).values({ enrollmentId: updated.enrollmentId, ...updates });
+      }
+    }
     return c.json({ submission: updated });
   } catch (e) {
     console.error('Update submission error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// PORTAL: calendar day (classes + activities for a date)
+// ──────────────────────────────────────
+app.get('/portal/calendar/day', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const dateStr = c.req.query('date');
+    if (!dateStr) return c.json({ error: 'date (YYYY-MM-DD) required' }, 400);
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return c.json({ error: 'Invalid date' }, 400);
+    const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
+    const myEnrollments = await db.select({
+      id: enrollments.id,
+      programId: enrollments.programId,
+      classId: enrollments.classId,
+      promotionId: enrollments.promotionId,
+    }).from(enrollments).where(and(eq(enrollments.studentId, auth.userId), sql`${enrollments.status} IN ('active', 'pending')`));
+    const classIds = myEnrollments.map((e) => e.classId).filter(Boolean) as string[];
+    const classesToday: any[] = [];
+    if (classIds.length > 0) {
+      const rows = await db.select({
+        id: programClasses.id,
+        programId: programClasses.programId,
+        name: programClasses.name,
+        startTime: programClasses.startTime,
+        endTime: programClasses.endTime,
+        room: programClasses.room,
+        progName: programs.name,
+        progNameFr: programs.nameFr,
+      }).from(programClasses)
+        .innerJoin(programs, eq(programClasses.programId, programs.id))
+        .where(and(inArray(programClasses.id, classIds), eq(programClasses.dayOfWeek, dayOfWeek)));
+      for (const r of rows) {
+        const enr = myEnrollments.find((e) => e.classId === r.id);
+        if (enr) classesToday.push({ ...r, enrollmentId: enr.id });
+      }
+    }
+    const activityIdsFromClass = new Set<string>();
+    for (const classId of classIds) {
+      const ac = await db.select({ activityId: activityClasses.activityId }).from(activityClasses).where(eq(activityClasses.classId, classId));
+      ac.forEach((a) => activityIdsFromClass.add(a.activityId));
+    }
+    const promotionIds = myEnrollments.map((e) => e.promotionId).filter(Boolean) as string[];
+    for (const promoId of promotionIds) {
+      const ap = await db.select({ activityId: activityPromotions.activityId }).from(activityPromotions).where(eq(activityPromotions.promotionId, promoId));
+      ap.forEach((a) => activityIdsFromClass.add(a.activityId));
+    }
+    const activitiesList = activityIdsFromClass.size === 0 ? [] : await db.select({
+      id: learningActivities.id,
+      type: learningActivities.type,
+      title: learningActivities.title,
+      titleFr: learningActivities.titleFr,
+    }).from(learningActivities).where(inArray(learningActivities.id, [...activityIdsFromClass]));
+    return c.json({ date: dateStr, dayOfWeek, classes: classesToday, activities: activitiesList });
+  } catch (e) {
+    console.error('Calendar day error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// STUDENT ATTENDANCE (request with location; teacher approves/rejects)
+// ──────────────────────────────────────
+app.post('/attendance-requests', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json();
+    const enrollmentId = body.enrollmentId;
+    const classId = body.classId;
+    const teacherId = body.teacherId;
+    if (!enrollmentId || !classId || !teacherId) return c.json({ error: 'enrollmentId, classId and teacherId required' }, 400);
+    const [en] = await db.select().from(enrollments).where(and(eq(enrollments.id, enrollmentId), eq(enrollments.studentId, auth.userId)));
+    if (!en) return c.json({ error: 'Enrollment not found' }, 404);
+    const requestDate = body.requestDate || new Date().toISOString().slice(0, 10);
+    const [inserted] = await db.insert(studentAttendanceRequests).values({
+      studentId: auth.userId,
+      enrollmentId,
+      classId,
+      teacherId,
+      latitude: body.latitude != null ? String(body.latitude) : null,
+      longitude: body.longitude != null ? String(body.longitude) : null,
+      address: body.address || null,
+      requestDate,
+      status: 'pending',
+    }).returning();
+    return c.json({ request: inserted });
+  } catch (e) {
+    console.error('Create attendance request error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.get('/attendance-requests/for-teacher', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const teacherId = c.req.query('teacherId') || auth.userId;
+    if (auth.role !== 'admin' && auth.userId !== teacherId) return c.json({ error: 'Forbidden' }, 403);
+    const rows = await db.select().from(studentAttendanceRequests)
+      .where(and(eq(studentAttendanceRequests.teacherId, teacherId), eq(studentAttendanceRequests.status, 'pending')))
+      .orderBy(desc(studentAttendanceRequests.requestedAt));
+    return c.json({ requests: rows });
+  } catch (e) {
+    console.error('List attendance requests error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.patch('/attendance-requests/:id', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const [req] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, id));
+    if (!req) return c.json({ error: 'Not found' }, 404);
+    if (req.teacherId !== auth.userId && auth.role !== 'admin') return c.json({ error: 'Forbidden' }, 403);
+    const status = body.status === 'approved' || body.status === 'rejected' ? body.status : req.status;
+    await db.update(studentAttendanceRequests).set({
+      status,
+      reviewedBy: auth.userId,
+      reviewedAt: new Date(),
+      rejectReason: body.rejectReason ?? req.rejectReason,
+    }).where(eq(studentAttendanceRequests.id, id));
+    const [updated] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, id));
+    return c.json({ request: updated });
+  } catch (e) {
+    console.error('Update attendance request error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// STAFF SCHEDULES (admin assigns staff to classes per week)
+// ──────────────────────────────────────
+app.get('/staff-schedules', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const weekStart = c.req.query('weekStart');
+    const staffId = c.req.query('staffId');
+    const conditions = [];
+    if (weekStart) conditions.push(eq(staffSchedules.weekStart, weekStart));
+    if (staffId) conditions.push(eq(staffSchedules.staffId, staffId));
+    const rows = await db.select().from(staffSchedules)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(staffSchedules.weekStart), asc(staffSchedules.dayOfWeek), asc(staffSchedules.startTime));
+    return c.json({ schedules: rows });
+  } catch (e) {
+    console.error('Staff schedules list error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/staff-schedules', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const [inserted] = await db.insert(staffSchedules).values({
+      staffId: body.staffId,
+      classId: body.classId,
+      weekStart: body.weekStart,
+      dayOfWeek: Number(body.dayOfWeek),
+      startTime: String(body.startTime),
+      endTime: String(body.endTime),
+      room: body.room ?? null,
+      createdBy: (admin as any).userId,
+    }).returning();
+    return c.json({ schedule: inserted });
+  } catch (e) {
+    console.error('Create staff schedule error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.delete('/staff-schedules/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    await db.delete(staffSchedules).where(eq(staffSchedules.id, id));
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Delete staff schedule error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// LECTURER ATTENDANCE (staff submits; admin approves → wallet credit)
+// ──────────────────────────────────────
+app.get('/lecturer-attendance', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const status = c.req.query('status');
+    let rows = await db.select().from(lecturerAttendance).orderBy(desc(lecturerAttendance.attendanceDate));
+    if (auth.role === 'staff') rows = rows.filter((r) => r.staffId === auth.userId);
+    if (status) rows = rows.filter((r) => r.status === status);
+    return c.json({ attendances: rows });
+  } catch (e) {
+    console.error('Lecturer attendance list error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/lecturer-attendance', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json();
+    const [inserted] = await db.insert(lecturerAttendance).values({
+      staffId: auth.userId,
+      scheduleId: body.scheduleId ?? null,
+      classId: body.classId,
+      attendanceDate: body.attendanceDate || new Date().toISOString().slice(0, 10),
+      status: 'pending',
+    }).returning();
+    return c.json({ attendance: inserted });
+  } catch (e) {
+    console.error('Submit lecturer attendance error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.patch('/lecturer-attendance/:id/approve', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const [att] = await db.select().from(lecturerAttendance).where(eq(lecturerAttendance.id, id));
+    if (!att) return c.json({ error: 'Not found' }, 404);
+    if (att.status !== 'pending') return c.json({ error: 'Already processed' }, 400);
+    await db.update(lecturerAttendance).set({ status: 'approved', approvedBy: (admin as any).userId, approvedAt: new Date() }).where(eq(lecturerAttendance.id, id));
+    const [rateRow] = await db.select().from(lecturerRates).where(eq(lecturerRates.staffId, att.staffId)).limit(1);
+    const amount = rateRow ? Number(rateRow.rateAmount) : 0;
+    if (amount > 0) {
+      const [wallet] = await db.select().from(lecturerWallets).where(eq(lecturerWallets.staffId, att.staffId));
+      if (wallet) {
+        const newBalance = Number(wallet.balance ?? 0) + amount;
+        await db.update(lecturerWallets).set({ balance: String(newBalance), updatedAt: new Date() }).where(eq(lecturerWallets.id, wallet.id));
+        await db.insert(lecturerWalletTransactions).values({ walletId: wallet.id, amount: String(amount), type: 'attendance_credit', referenceId: id });
+      } else {
+        const [created] = await db.insert(lecturerWallets).values({ staffId: att.staffId, balance: String(amount), updatedAt: new Date() }).returning();
+        if (created) await db.insert(lecturerWalletTransactions).values({ walletId: created.id, amount: String(amount), type: 'attendance_credit', referenceId: id });
+      }
+    }
+    const [updated] = await db.select().from(lecturerAttendance).where(eq(lecturerAttendance.id, id));
+    return c.json({ attendance: updated });
+  } catch (e) {
+    console.error('Approve lecturer attendance error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.patch('/lecturer-attendance/:id/reject', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    await db.update(lecturerAttendance).set({ status: 'rejected', rejectReason: body.rejectReason ?? null }).where(eq(lecturerAttendance.id, id));
+    const [updated] = await db.select().from(lecturerAttendance).where(eq(lecturerAttendance.id, id));
+    return c.json({ attendance: updated });
+  } catch (e) {
+    console.error('Reject lecturer attendance error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// LECTURER RATES (admin sets rate per class for staff)
+// ──────────────────────────────────────
+app.get('/lecturer-rates', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const staffId = c.req.query('staffId');
+    const rows = staffId
+      ? await db.select().from(lecturerRates).where(eq(lecturerRates.staffId, staffId))
+      : await db.select().from(lecturerRates);
+    return c.json({ rates: rows });
+  } catch (e) {
+    console.error('Lecturer rates list error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/lecturer-rates', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const [inserted] = await db.insert(lecturerRates).values({
+      staffId: body.staffId,
+      rateAmount: String(body.rateAmount ?? 0),
+      currency: body.currency ?? 'USD',
+      rateType: body.rateType ?? 'per_class',
+      description: body.description ?? null,
+    }).returning();
+    return c.json({ rate: inserted });
+  } catch (e) {
+    console.error('Create lecturer rate error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// LECTURER WALLET (staff view balance; request advance; admin process)
+// ──────────────────────────────────────
+app.get('/lecturer-wallet/my', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const [wallet] = await db.select().from(lecturerWallets).where(eq(lecturerWallets.staffId, auth.userId));
+    const transactions = wallet
+      ? await db.select().from(lecturerWalletTransactions).where(eq(lecturerWalletTransactions.walletId, wallet.id)).orderBy(desc(lecturerWalletTransactions.createdAt))
+      : [];
+    return c.json({
+      wallet: wallet ? { balance: Number(wallet.balance), currency: wallet.currency } : { balance: 0, currency: 'USD' },
+      transactions: transactions.map((t) => ({ ...t, amount: Number(t.amount) })),
+    });
+  } catch (e) {
+    console.error('Lecturer wallet error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/lecturer-wallet/advance-request', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const body = await c.req.json();
+    const amount = Number(body.amount ?? 0);
+    if (amount <= 0) return c.json({ error: 'Invalid amount' }, 400);
+    const [wallet] = await db.select().from(lecturerWallets).where(eq(lecturerWallets.staffId, auth.userId));
+    if (!wallet) return c.json({ error: 'No wallet' }, 400);
+    const balance = Number(wallet.balance ?? 0);
+    if (amount > balance) return c.json({ error: 'Insufficient balance' }, 400);
+    await db.update(lecturerWallets).set({ balance: String(balance - amount), updatedAt: new Date() }).where(eq(lecturerWallets.id, wallet.id));
+    const [tx] = await db.insert(lecturerWalletTransactions).values({
+      walletId: wallet.id,
+      amount: String(-amount),
+      type: 'advance',
+      description: body.description || 'Advance request',
+    }).returning();
+    return c.json({ transaction: tx });
+  } catch (e) {
+    console.error('Advance request error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
+// CERTIFICATES (admin generates for promotion/program)
+// ──────────────────────────────────────
+app.get('/certificates', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const promotionId = c.req.query('promotionId');
+    const programId = c.req.query('programId');
+    let rows = await db.select().from(certificates);
+    if (promotionId) rows = rows.filter((r) => r.promotionId === promotionId);
+    if (programId) rows = rows.filter((r) => r.programId === programId);
+    return c.json({ certificates: rows });
+  } catch (e) {
+    console.error('Certificates list error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/certificates/generate', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const promotionId = body.promotionId;
+    const programId = body.programId;
+    if (!promotionId || !programId) return c.json({ error: 'promotionId and programId required' }, 400);
+    const enrolled = await db.select({
+      studentId: enrollments.studentId,
+      id: enrollments.id,
+      programId: enrollments.programId,
+    }).from(enrollments).where(and(eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId), sql`${enrollments.status} = 'active'`));
+    const existing = await db.select({ studentId: certificates.studentId }).from(certificates).where(and(eq(certificates.promotionId, promotionId), eq(certificates.programId, programId)));
+    const existingIds = new Set(existing.map((e) => e.studentId));
+    const toCreate = enrolled.filter((e) => !existingIds.has(e.studentId));
+    for (const e of toCreate) {
+      const code = `BTC-${programId.slice(0, 8)}-${promotionId.slice(0, 8)}-${e.studentId.slice(0, 8)}-${Date.now().toString(36)}`;
+      await db.insert(certificates).values({
+        studentId: e.studentId,
+        programId,
+        promotionId,
+        enrollmentId: e.id,
+        certificateCode: code,
+      });
+    }
+    const all = await db.select().from(certificates).where(and(eq(certificates.promotionId, promotionId), eq(certificates.programId, programId)));
+    return c.json({ generated: toCreate.length, certificates: all });
+  } catch (e) {
+    console.error('Generate certificates error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });
@@ -2322,6 +2952,12 @@ app.post('/payments', async (c) => {
     const programId = body.programId ?? null;
     const method = String(body.method ?? 'manual');
     if (!amount || amount <= 0) return c.json({ error: 'Invalid amount' }, 400);
+
+    // Student can only pay for a program they are enrolled in
+    if (programId) {
+      const [enrollment] = await db.select({ id: enrollments.id }).from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.programId, programId))).limit(1);
+      if (!enrollment) return c.json({ error: 'You can only pay for programs you are enrolled in.' }, 403);
+    }
 
     let receiptUrl: string | null = null;
     if (method === 'manual' && body.receiptImage) {

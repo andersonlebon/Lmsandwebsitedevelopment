@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { UserCheck, Loader2, CheckCircle, Filter, X, TrendingUp } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
+import { ExportReportButton } from '../../components/ExportReportButton';
 
 interface EnrollmentProgress {
   amountPaid: number;
@@ -205,6 +206,19 @@ export function Enrollments() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <ExportReportButton
+            data={list.map(e => ({
+              Student: e.studentName ?? '',
+              Email: e.studentEmail ?? '',
+              Program: lang === 'fr' ? (e.progNameFr ?? e.progName) : e.progName,
+              Promotion: lang === 'fr' ? (e.promoNameFr ?? e.promoName) : e.promoName,
+              Status: e.status,
+              'Enrolled at': e.enrolledAt,
+              'Roll no.': e.rollNumber ?? '',
+            }))}
+            filename="enrollments"
+            compact
+          />
           <Filter size={18} className="text-gray-500 shrink-0" />
           <select
             value={departmentFilter}
