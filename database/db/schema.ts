@@ -145,11 +145,13 @@ export const programFees = pgTable('program_fees', {
   updatedAt: timestamptz('updated_at'),
 });
 
-// ─── Program classes (time slots per program, e.g. "6:00 to 7:30")
+// ─── Program classes (time slots per program, e.g. "6:00 to 7:30)
 export const programClasses = pgTable('program_classes', {
   id: uuid('id').primaryKey().defaultRandom(),
   programId: uuid('program_id').notNull(),
+  promotionId: uuid('promotion_id'), // optional: class can be scoped to a promotion
   name: text('name').default(''),
+  code: text('code').unique(), // unique code: department-program-promotion-class
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
   dayOfWeek: integer('day_of_week'),
@@ -254,6 +256,22 @@ export const activityPromotions = pgTable('activity_promotions', {
   activityPromoUnique: unique().on(t.activityId, t.promotionId),
 }));
 
+// ─── Lessons (content to teach in a class session — admin creates, then assigns to lecturer in staff schedule)
+export const lessons = pgTable('lessons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  titleFr: text('title_fr').default(''),
+  description: text('description').default(''),
+  descriptionFr: text('description_fr').default(''),
+  content: text('content').default(''), // full lesson content (what the lecturer will teach)
+  contentFr: text('content_fr').default(''),
+  contentMedia: jsonb('content_media').default([]), // [{ type: 'video'|'audio'|'pdf'|'link', url: string, title?: string }]
+  programId: uuid('program_id'),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamptz('created_at').defaultNow(),
+  updatedAt: timestamptz('updated_at'),
+});
+
 // ─── Activity ↔ Class (assign exercises/assessments/assignments to class, not only promotion)
 export const activityClasses = pgTable('activity_classes', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -295,6 +313,8 @@ export const staffSchedules = pgTable('staff_schedules', {
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
   room: text('room'),
+  lessonId: uuid('lesson_id'), // lesson to teach (from lessons table)
+  lessonTitle: text('lesson_title'), // free text override or when no lesson selected
   createdBy: uuid('created_by'),
   createdAt: timestamptz('created_at').defaultNow(),
 });
@@ -538,9 +558,14 @@ export const studentAttendanceRequestsRelations = relations(studentAttendanceReq
   teacher: one(profiles, { fields: [studentAttendanceRequests.teacherId], references: [profiles.id] }),
 }));
 
+export const lessonsRelations = relations(lessons, ({ one }) => ({
+  program: one(programs, { fields: [lessons.programId], references: [programs.id] }),
+}));
+
 export const staffSchedulesRelations = relations(staffSchedules, ({ one }) => ({
   staff: one(profiles, { fields: [staffSchedules.staffId], references: [profiles.id] }),
   class: one(programClasses, { fields: [staffSchedules.classId], references: [programClasses.id] }),
+  lesson: one(lessons, { fields: [staffSchedules.lessonId], references: [lessons.id] }),
 }));
 
 export const lecturerAttendanceRelations = relations(lecturerAttendance, ({ one }) => ({
