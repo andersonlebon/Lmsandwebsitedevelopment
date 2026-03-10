@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and, isNull, isNotNull, sql } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -672,10 +672,43 @@ app.delete('/programs/:id', async (c) => {
 // ──────────────────────────────────────
 // PROGRAM CLASSES (time slots per program)
 // ──────────────────────────────────────
+function slugForCode(s: string, maxLen = 8): string {
+  if (!s || typeof s !== 'string') return 'X';
+  const slug = s.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+  return (slug || 'X').slice(0, maxLen);
+}
+
+async function generateUniqueClassCode(programId: string, promotionId: string | null, name: string | null, startTime: string, dayOfWeek: number | null, excludeId?: string): Promise<string> {
+  const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!prog) return `CLASS-${programId.slice(0, 8)}`;
+  const [dept] = await db.select().from(departments).where(eq(departments.id, prog.departmentId));
+  const deptPart = dept?.slug ? slugForCode(dept.slug, 3) : 'DEP';
+  const progPart = slugForCode(prog.name ?? '', 3);
+  const promoPart = promotionId
+    ? (await db.select({ name: promotions.name }).from(promotions).where(eq(promotions.id, promotionId)))[0]?.name
+    : null;
+  const promoSlug = promoPart ? slugForCode(promoPart, 2) : 'AL';
+  const timePart = (startTime || '').replace(':', '').slice(0, 2) || '00';
+  const classPart = (name && name.trim())
+    ? slugForCode(name, 4)
+    : `D${dayOfWeek ?? 0}${timePart}`;
+  let code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
+  let n = 1;
+  while (true) {
+    const existing = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.code, code));
+    const taken = existing.length > 0 && (excludeId ? existing.some((r) => r.id !== excludeId) : true);
+    if (!taken) return code;
+    code = `${deptPart}-${progPart}-${promoSlug}-${classPart}-${n}`;
+    n++;
+  }
+}
+
 function classRowToApi(row: any) {
   return {
     id: row.id,
     programId: row.programId,
+    promotionId: row.promotionId ?? undefined,
+    code: row.code ?? undefined,
     name: row.name ?? '',
     startTime: row.startTime,
     endTime: row.endTime,
@@ -698,7 +731,7 @@ app.get('/classes', async (c) => {
     }
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
-    const conditions = [];
+    const conditions: Parameters<typeof and> = [];
     if (departmentId) conditions.push(eq(departments.id, departmentId));
     if (promotionId) {
       const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
@@ -710,6 +743,8 @@ app.get('/classes', async (c) => {
       .select({
         id: programClasses.id,
         programId: programClasses.programId,
+        promotionId: programClasses.promotionId,
+        code: programClasses.code,
         name: programClasses.name,
         startTime: programClasses.startTime,
         endTime: programClasses.endTime,
@@ -732,6 +767,8 @@ app.get('/classes', async (c) => {
       classes: rows.map((r) => ({
         id: r.id,
         programId: r.programId,
+        promotionId: r.promotionId ?? undefined,
+        code: r.code ?? undefined,
         name: r.name,
         startTime: r.startTime,
         endTime: r.endTime,
@@ -772,12 +809,19 @@ app.post('/classes', async (c) => {
     if (!programId) return c.json({ error: 'programId required' }, 400);
     const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!prog) return c.json({ error: 'Program not found' }, 404);
+    const promotionId = body.promotionId ?? body.promotion_id ?? null;
+    const name = body.name ?? '';
+    const startTime = String(body.startTime ?? '');
+    const dayOfWeek = body.dayOfWeek != null ? Number(body.dayOfWeek) : null;
+    const code = await generateUniqueClassCode(programId, promotionId, name || null, startTime, dayOfWeek);
     const [inserted] = await db.insert(programClasses).values({
       programId,
-      name: body.name ?? '',
-      startTime: String(body.startTime ?? ''),
+      promotionId: promotionId || undefined,
+      code,
+      name,
+      startTime,
       endTime: String(body.endTime ?? ''),
-      dayOfWeek: body.dayOfWeek != null ? Number(body.dayOfWeek) : null,
+      dayOfWeek,
       room: body.room ?? '',
       sortOrder: body.sortOrder ?? body.sort_order ?? 0,
     }).returning();
@@ -797,11 +841,21 @@ app.put('/classes/:id', async (c) => {
     const body = await c.req.json();
     const [existing] = await db.select().from(programClasses).where(eq(programClasses.id, id));
     if (!existing) return c.json({ error: 'Class not found' }, 404);
+    const name = body.name !== undefined ? body.name : existing.name;
+    const programId = body.programId ?? body.program_id ?? existing.programId;
+    const promotionId = body.promotionId !== undefined ? (body.promotionId || null) : existing.promotionId;
+    const startTime = body.startTime !== undefined ? String(body.startTime) : existing.startTime;
+    const dayOfWeek = body.dayOfWeek !== undefined ? (body.dayOfWeek == null ? null : Number(body.dayOfWeek)) : existing.dayOfWeek;
+    const codeChanged = name !== existing.name || programId !== existing.programId || promotionId !== existing.promotionId;
+    const code = codeChanged ? await generateUniqueClassCode(programId, promotionId, name || null, startTime, dayOfWeek) : existing.code;
     await db.update(programClasses).set({
-      name: body.name !== undefined ? body.name : existing.name,
-      startTime: body.startTime !== undefined ? String(body.startTime) : existing.startTime,
+      name,
+      programId: body.programId !== undefined ? body.programId : existing.programId,
+      promotionId: promotionId ?? undefined,
+      code: code ?? undefined,
+      startTime,
       endTime: body.endTime !== undefined ? String(body.endTime) : existing.endTime,
-      dayOfWeek: body.dayOfWeek !== undefined ? (body.dayOfWeek == null ? null : Number(body.dayOfWeek)) : existing.dayOfWeek,
+      dayOfWeek,
       room: body.room !== undefined ? body.room : existing.room,
       sortOrder: body.sortOrder ?? body.sort_order ?? existing.sortOrder,
       updatedAt: new Date(),
@@ -2548,6 +2602,118 @@ app.patch('/attendance-requests/:id', async (c) => {
 });
 
 // ──────────────────────────────────────
+// LESSONS (admin creates; used when assigning lecturer to a class slot)
+// ──────────────────────────────────────
+app.get('/lessons', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const programId = c.req.query('programId');
+    const rows = await db
+      .select({
+        id: lessons.id,
+        title: lessons.title,
+        titleFr: lessons.titleFr,
+        description: lessons.description,
+        descriptionFr: lessons.descriptionFr,
+        content: lessons.content,
+        contentFr: lessons.contentFr,
+        contentMedia: lessons.contentMedia,
+        programId: lessons.programId,
+        sortOrder: lessons.sortOrder,
+        programName: programs.name,
+        programNameFr: programs.nameFr,
+      })
+      .from(lessons)
+      .leftJoin(programs, eq(lessons.programId, programs.id))
+      .orderBy(asc(lessons.sortOrder), asc(lessons.title));
+    let list = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      titleFr: r.titleFr,
+      description: r.description,
+      descriptionFr: r.descriptionFr,
+      content: r.content,
+      contentFr: r.contentFr,
+      contentMedia: r.contentMedia ?? [],
+      programId: r.programId,
+      sortOrder: r.sortOrder,
+      programName: r.programName,
+      programNameFr: r.programNameFr,
+    }));
+    if (programId) list = list.filter((l) => l.programId === programId);
+    return c.json({ lessons: list });
+  } catch (e) {
+    console.error('Lessons list error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/lessons', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const body = await c.req.json();
+    const [inserted] = await db.insert(lessons).values({
+      title: body.title,
+      titleFr: body.titleFr ?? null,
+      description: body.description ?? null,
+      descriptionFr: body.descriptionFr ?? null,
+      content: body.content ?? null,
+      contentFr: body.contentFr ?? null,
+      contentMedia: Array.isArray(body.contentMedia) ? body.contentMedia : [],
+      programId: body.programId ?? null,
+      sortOrder: body.sortOrder ?? 0,
+    }).returning();
+    return c.json({ lesson: inserted });
+  } catch (e) {
+    console.error('Create lesson error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.put('/lessons/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    await db.update(lessons).set({
+      title: body.title ?? undefined,
+      titleFr: body.titleFr !== undefined ? body.titleFr : undefined,
+      description: body.description !== undefined ? body.description : undefined,
+      descriptionFr: body.descriptionFr !== undefined ? body.descriptionFr : undefined,
+      content: body.content !== undefined ? body.content : undefined,
+      contentFr: body.contentFr !== undefined ? body.contentFr : undefined,
+      contentMedia: body.contentMedia !== undefined ? (Array.isArray(body.contentMedia) ? body.contentMedia : []) : undefined,
+      programId: body.programId !== undefined ? body.programId : undefined,
+      sortOrder: body.sortOrder !== undefined ? body.sortOrder : undefined,
+      updatedAt: new Date(),
+    }).where(eq(lessons.id, id));
+    const [updated] = await db.select().from(lessons).where(eq(lessons.id, id));
+    if (!updated) return c.json({ error: 'Lesson not found' }, 404);
+    return c.json({ lesson: updated });
+  } catch (e) {
+    console.error('Update lesson error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.delete('/lessons/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const result = await db.delete(lessons).where(eq(lessons.id, id)).returning({ id: lessons.id });
+    if (result.length === 0) return c.json({ error: 'Lesson not found' }, 404);
+    return c.json({ success: true });
+  } catch (e) {
+    console.error('Delete lesson error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ──────────────────────────────────────
 // STAFF SCHEDULES (admin assigns staff to classes per week)
 // ──────────────────────────────────────
 app.get('/staff-schedules', async (c) => {
@@ -2556,7 +2722,7 @@ app.get('/staff-schedules', async (c) => {
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const weekStart = c.req.query('weekStart');
     const staffId = c.req.query('staffId');
-    const conditions = [];
+    const conditions: Parameters<typeof and> = [];
     if (weekStart) conditions.push(eq(staffSchedules.weekStart, weekStart));
     if (staffId) conditions.push(eq(staffSchedules.staffId, staffId));
     const rows = await db.select().from(staffSchedules)
@@ -2569,24 +2735,146 @@ app.get('/staff-schedules', async (c) => {
   }
 });
 
+/** Week calendar: all program classes as slots, with optional staff assignment for the given week. Filter by departmentId, programId, or promotionId to reduce overlap. */
+app.get('/staff-schedules/week', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const weekStart = c.req.query('weekStart');
+    const departmentId = c.req.query('departmentId');
+    const programId = c.req.query('programId');
+    const promotionId = c.req.query('promotionId');
+    if (!weekStart) return c.json({ error: 'weekStart (YYYY-MM-DD) required' }, 400);
+    const conditions: Parameters<typeof and> = [];
+    if (departmentId) conditions.push(eq(programs.departmentId, departmentId));
+    if (programId) conditions.push(eq(programClasses.programId, programId));
+    if (promotionId) {
+      const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
+      const progIds = progInPromo.map((p) => p.programId);
+      if (progIds.length === 0) {
+        return c.json({ weekStart, slots: [] });
+      }
+      conditions.push(inArray(programClasses.programId, progIds));
+    }
+    const classesRows = await db
+      .select({
+        id: programClasses.id,
+        code: programClasses.code,
+        promotionId: programClasses.promotionId,
+        name: programClasses.name,
+        programId: programClasses.programId,
+        programName: programs.name,
+        programNameFr: programs.nameFr,
+        startTime: programClasses.startTime,
+        endTime: programClasses.endTime,
+        dayOfWeek: programClasses.dayOfWeek,
+        room: programClasses.room,
+      })
+      .from(programClasses)
+      .innerJoin(programs, eq(programClasses.programId, programs.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(programClasses.dayOfWeek), asc(programClasses.startTime));
+    const schedulesRows = await db
+      .select({
+        id: staffSchedules.id,
+        staffId: staffSchedules.staffId,
+        classId: staffSchedules.classId,
+        dayOfWeek: staffSchedules.dayOfWeek,
+        startTime: staffSchedules.startTime,
+        endTime: staffSchedules.endTime,
+        lessonId: staffSchedules.lessonId,
+        lessonTitle: staffSchedules.lessonTitle,
+        staffName: profiles.name,
+        lessonName: lessons.title,
+        lessonNameFr: lessons.titleFr,
+      })
+      .from(staffSchedules)
+      .leftJoin(profiles, eq(staffSchedules.staffId, profiles.id))
+      .leftJoin(lessons, eq(staffSchedules.lessonId, lessons.id))
+      .where(eq(staffSchedules.weekStart, weekStart));
+    const scheduleByKey = new Map<string, typeof schedulesRows[0]>();
+    for (const s of schedulesRows) {
+      const key = `${s.classId}-${s.dayOfWeek}-${s.startTime}`;
+      scheduleByKey.set(key, s);
+    }
+    const slots = classesRows.map((cl) => {
+      const key = `${cl.id}-${cl.dayOfWeek ?? 0}-${cl.startTime}`;
+      const schedule = scheduleByKey.get(key);
+      const lessonDisplay = schedule?.lessonTitle ?? schedule?.lessonName ?? schedule?.lessonNameFr ?? null;
+      return {
+        classId: cl.id,
+        classCode: cl.code ?? undefined,
+        className: cl.name,
+        programId: cl.programId,
+        programName: cl.programName,
+        programNameFr: cl.programNameFr,
+        dayOfWeek: cl.dayOfWeek ?? 0,
+        startTime: cl.startTime,
+        endTime: cl.endTime,
+        room: cl.room,
+        scheduleId: schedule?.id ?? null,
+        staffId: schedule?.staffId ?? null,
+        staffName: schedule?.staffName ?? null,
+        lessonId: schedule?.lessonId ?? null,
+        lessonTitle: lessonDisplay,
+      };
+    });
+    return c.json({ weekStart, slots });
+  } catch (e) {
+    console.error('Staff schedules week error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 app.post('/staff-schedules', async (c) => {
   try {
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
     const body = await c.req.json();
+    const classId = body.classId;
+    const weekStart = body.weekStart;
+    if (!classId || !weekStart) return c.json({ error: 'classId and weekStart required' }, 400);
+    const [classRow] = await db.select().from(programClasses).where(eq(programClasses.id, classId));
+    if (!classRow) return c.json({ error: 'Class not found' }, 404);
+    const dayOfWeek = Number(classRow.dayOfWeek ?? 1);
+    const startTime = String(classRow.startTime);
+    const endTime = String(classRow.endTime);
+    const room = classRow.room ?? null;
     const [inserted] = await db.insert(staffSchedules).values({
       staffId: body.staffId,
-      classId: body.classId,
-      weekStart: body.weekStart,
-      dayOfWeek: Number(body.dayOfWeek),
-      startTime: String(body.startTime),
-      endTime: String(body.endTime),
-      room: body.room ?? null,
+      classId,
+      weekStart,
+      dayOfWeek,
+      startTime,
+      endTime,
+      room,
+      lessonId: body.lessonId ?? null,
+      lessonTitle: body.lessonTitle ?? null,
       createdBy: (admin as any).userId,
     }).returning();
     return c.json({ schedule: inserted });
   } catch (e) {
     console.error('Create staff schedule error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.patch('/staff-schedules/:id', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const updates: Record<string, unknown> = {};
+    if (body.staffId != null) updates.staffId = body.staffId;
+    if (body.lessonId !== undefined) updates.lessonId = body.lessonId || null;
+    if (body.lessonTitle !== undefined) updates.lessonTitle = body.lessonTitle || null;
+    if (Object.keys(updates).length === 0) return c.json({ error: 'No fields to update' }, 400);
+    await db.update(staffSchedules).set(updates as any).where(eq(staffSchedules.id, id));
+    const [updated] = await db.select().from(staffSchedules).where(eq(staffSchedules.id, id));
+    return c.json({ schedule: updated });
+  } catch (e) {
+    console.error('Update staff schedule error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });

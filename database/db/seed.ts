@@ -13,7 +13,14 @@ import {
   learningActivities,
   activityItems,
   activityPromotions,
+  lessons,
 } from './schema';
+
+function slugForCode(s: string, maxLen = 8): string {
+  if (!s || typeof s !== 'string') return 'X';
+  const slug = s.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+  return (slug || 'X').slice(0, maxLen);
+}
 
 const seedDepartments = [
   {
@@ -71,7 +78,11 @@ async function seed() {
   });
   const deptRows = await db.select({ id: departments.id, slug: departments.slug }).from(departments).orderBy(asc(departments.sortOrder));
   const deptBySlug: Record<string, string> = {};
-  for (const d of deptRows) deptBySlug[d.slug] = d.id;
+  const deptSlugById: Record<string, string> = {};
+  for (const d of deptRows) {
+    deptBySlug[d.slug] = d.id;
+    deptSlugById[d.id] = d.slug;
+  }
   console.log('Seeded departments:', Object.keys(deptBySlug).length);
 
   // ─── Exchange rates ──────────────────────────────────────────────────
@@ -148,10 +159,15 @@ async function seed() {
     { startTime: '14:00', endTime: '16:00', dayOfWeek: 3, name: 'Wed 14h-16h', room: 'Room B' },
     { startTime: '10:00', endTime: '12:00', dayOfWeek: 5, name: 'Fri 10h-12h', room: 'Room A' },
   ];
+  const allClassIds: string[] = [];
   for (const programId of programIds) {
     const existing = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.programId, programId)).limit(1);
-    if (existing.length > 0) continue;
-    await db.insert(programClasses).values(
+    if (existing.length > 0) {
+      const all = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.programId, programId));
+      allClassIds.push(...all.map((c) => c.id));
+      continue;
+    }
+    const inserted = await db.insert(programClasses).values(
       classSlots.map((s, i) => ({
         programId,
         name: s.name,
@@ -161,9 +177,35 @@ async function seed() {
         room: s.room,
         sortOrder: i + 1,
       }))
-    );
+    ).returning({ id: programClasses.id });
+    inserted.forEach((r) => allClassIds.push(r.id));
   }
   console.log('Seeded program_classes for', programIds.length, 'programs.');
+
+  // ─── Lessons (content to teach; assign to staff in Staff Schedules) ───
+  const existingLessons = await db.select({ id: lessons.id }).from(lessons).limit(1);
+  if (existingLessons.length === 0 && programIds.length >= 3) {
+    const seedLessons: Array<{ title: string; titleFr: string; description: string; descriptionFr: string; content: string; contentFr: string; programId: string; sortOrder: number }> = [
+      { title: 'Introduction to Greetings', titleFr: 'Introduction aux salutations', description: 'Basic greetings and introductions.', descriptionFr: 'Salutations et présentations de base.', content: 'Objectives: Learn hello, goodbye, how are you. Key phrases: Hello, Good morning, Nice to meet you. Practice dialogue and role play.', contentFr: 'Objectifs : Apprendre bonjour, au revoir, comment allez-vous. Phrases clés et jeux de rôle.', programId: programIds[0], sortOrder: 1 },
+      { title: 'Numbers and Counting', titleFr: 'Les nombres', description: 'Numbers 1–100 and simple arithmetic.', descriptionFr: 'Nombres 1–100 et calcul simple.', content: 'Count from 1 to 100. Use numbers in context: age, phone numbers, prices. Exercises: listen and repeat.', contentFr: 'Compter de 1 à 100. Utilisation en contexte : âge, téléphone, prix.', programId: programIds[0], sortOrder: 2 },
+      { title: 'Variables and Data Types', titleFr: 'Variables et types de données', description: 'Intro to variables and basic types.', descriptionFr: 'Introduction aux variables et types de base.', content: 'What is a variable? Strings, numbers, booleans. Declare and assign. Simple examples in code.', contentFr: 'Qu\'est-ce qu\'une variable ? Chaînes, nombres, booléens. Exemples de code.', programId: programIds[2], sortOrder: 1 },
+      { title: 'Conditionals and Loops', titleFr: 'Conditions et boucles', description: 'if/else and for/while loops.', descriptionFr: 'if/else et boucles for/while.', content: 'If-else logic. For loop, while loop. Practice with small programs.', contentFr: 'Logique if-else. Boucles for et while. Exercices.', programId: programIds[2], sortOrder: 2 },
+      { title: 'Road Signs and Rules', titleFr: 'Panneaux et règles', description: 'Traffic signs and basic road rules.', descriptionFr: 'Panneaux de signalisation et règles de base.', content: 'Recognize main road signs. Right of way. Speed limits. Theory sheet and quiz.', contentFr: 'Reconnaître les panneaux. Priorité. Limites de vitesse.', programId: programIds[4], sortOrder: 1 },
+    ];
+    for (const l of seedLessons) {
+      await db.insert(lessons).values({
+        title: l.title,
+        titleFr: l.titleFr,
+        description: l.description,
+        descriptionFr: l.descriptionFr,
+        content: l.content,
+        contentFr: l.contentFr,
+        programId: l.programId,
+        sortOrder: l.sortOrder,
+      });
+    }
+    console.log('Seeded lessons:', seedLessons.length);
+  }
 
   // ─── Promotions (cohorts) ────────────────────────────────────────────
   const seedPromotions = [
@@ -171,10 +213,12 @@ async function seed() {
     { name: '2025 Q2', nameFr: '2025 T2', startDate: '2025-07-01', endDate: '2025-12-19', status: 'upcoming' as const },
   ];
   const promotionIds: string[] = [];
+  const promotionNameById: Record<string, string> = {};
   for (const promo of seedPromotions) {
     const [existing] = await db.select({ id: promotions.id }).from(promotions).where(eq(promotions.name, promo.name)).limit(1);
     if (existing) {
       promotionIds.push(existing.id);
+      promotionNameById[existing.id] = promo.name;
       continue;
     }
     const [inserted] = await db.insert(promotions).values({
@@ -185,7 +229,10 @@ async function seed() {
       durationUnit: 'months',
       status: promo.status,
     }).returning({ id: promotions.id });
-    if (inserted) promotionIds.push(inserted.id);
+    if (inserted) {
+      promotionIds.push(inserted.id);
+      promotionNameById[inserted.id] = promo.name;
+    }
   }
   console.log('Seeded promotions:', promotionIds.length);
 
@@ -202,6 +249,56 @@ async function seed() {
     }
   }
   console.log('Seeded promotion_programs.');
+
+  // ─── Generate class codes for all classes (department-program-promotion-time) ─
+  const programRows = await db
+    .select({
+      id: programs.id,
+      name: programs.name,
+      departmentId: programs.departmentId,
+    })
+    .from(programs);
+  const programById: Record<string, { id: string; name: string; departmentId: string | null }> = {};
+  for (const p of programRows) {
+    programById[p.id] = {
+      id: p.id,
+      name: p.name,
+      departmentId: p.departmentId ?? null,
+    };
+  }
+
+  const classRows = await db
+    .select({
+      id: programClasses.id,
+      programId: programClasses.programId,
+      promotionId: programClasses.promotionId,
+      name: programClasses.name,
+      startTime: programClasses.startTime,
+      dayOfWeek: programClasses.dayOfWeek,
+      code: programClasses.code,
+    })
+    .from(programClasses);
+
+  for (const cls of classRows) {
+    if (cls.code) continue;
+    const prog = programById[cls.programId];
+    if (!prog) continue;
+    const deptSlug = prog.departmentId ? deptSlugById[prog.departmentId] : undefined;
+    const deptPart = deptSlug ? slugForCode(deptSlug, 3) : 'DEP';
+    const progPart = slugForCode(prog.name ?? '', 3);
+    const promoName = cls.promotionId ? promotionNameById[cls.promotionId] : null;
+    const promoSlug = promoName ? slugForCode(promoName, 2) : 'AL';
+    const timePart = String(cls.startTime || '').replace(':', '').slice(0, 2) || '00';
+    const classPart =
+      cls.name && cls.name.trim()
+        ? slugForCode(cls.name, 4)
+        : `D${cls.dayOfWeek ?? 0}${timePart}`;
+    const code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
+    await db
+      .update(programClasses)
+      .set({ code })
+      .where(eq(programClasses.id, cls.id));
+  }
 
   // ─── Learning activities: exercises, assessments, assignments ──────────
   // Use first 3 programs for activities (English Beginner, English Intermediate, Intro to Programming)

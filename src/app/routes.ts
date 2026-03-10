@@ -32,6 +32,7 @@ import { FeeStructures } from './pages/dashboard/FeeStructures';
 import { ExchangeRates } from './pages/dashboard/ExchangeRates';
 import { Enrollments } from './pages/dashboard/Enrollments';
 import { LearningActivities } from './pages/dashboard/LearningActivities';
+import { Lessons } from './pages/dashboard/Lessons';
 import { Classes } from './pages/dashboard/Classes';
 import { PeopleLayout, PeopleRedirect } from './pages/dashboard/PeopleLayout';
 import { AcademicLayout, AcademicRedirect } from './pages/dashboard/AcademicLayout';
@@ -126,6 +127,7 @@ export const router = createBrowserRouter([
           { path: 'fee-structures', Component: FeeStructures },
           { path: 'enrollments', Component: Enrollments },
           { path: 'classes', Component: Classes },
+          { path: 'lessons', Component: Lessons },
           { path: 'learning', Component: LearningActivities },
         ],
       },

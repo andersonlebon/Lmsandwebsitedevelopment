@@ -434,6 +434,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'common.exchangeRates': { en: 'Exchange Rates', fr: 'Taux de change' },
   'common.myRecords': { en: 'My Records', fr: 'Mes Dossiers' },
   'common.connect': { en: 'Connect', fr: 'Connecter' },
+  'common.lessons': { en: 'Lessons', fr: 'Leçons' },
   'common.learning': { en: 'Exercises & Assessments', fr: 'Exercices & Évaluations' },
   'learning.exercises': { en: 'Exercises', fr: 'Exercices' },
   'learning.assessments': { en: 'Assessments / Quizzes', fr: 'Évaluations / Quiz' },

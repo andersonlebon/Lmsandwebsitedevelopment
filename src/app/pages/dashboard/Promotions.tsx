@@ -40,6 +40,7 @@ export function Promotions() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [programs, setPrograms] = useState<{ id: string; name: string; nameFr: string; department?: string; departmentName?: string; departmentNameFr?: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Promotion | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editing, setEditing] = useState<Promotion | null>(null);
   const [form, setForm] = useState({
@@ -177,9 +178,10 @@ export function Promotions() {
             return (
               <motion.div
                 key={p.id}
-                className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow"
+                className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow cursor-pointer"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
+                onClick={() => setSelected(p)}
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-green-100 dark:bg-green-900/30">
@@ -198,14 +200,91 @@ export function Promotions() {
                   <span className={`text-xs px-2 py-1 rounded-full ${p.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : p.status === 'upcoming' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
                     {STATUS_OPTIONS.find((s) => s.id === p.status)?.[lang === 'fr' ? 'fr' : 'en'] || p.status}
                   </span>
-                  <button onClick={() => openEdit(p)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"><Edit2 size={16} /></button>
-                  <button onClick={() => remove(p.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"><Trash2 size={16} /></button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEdit(p);
+                    }}
+                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remove(p.id);
+                    }}
+                    className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </motion.div>
             );
           })
         )}
       </div>
+
+      {selected && (
+        <div className="mt-8 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {lang === 'fr' ? (selected.nameFr || selected.name) : selected.name}
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {selected.startDate && selected.endDate
+                  ? `${new Date(selected.startDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US')} → ${new Date(
+                      selected.endDate,
+                    ).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US')}`
+                  : '—'}
+                {selected.durationUnit ? ` · ${selected.durationUnit}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-xs px-2 py-1 rounded-full ${
+                  selected.status === 'active'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : selected.status === 'upcoming'
+                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                }`}
+              >
+                {STATUS_OPTIONS.find((s) => s.id === selected.status)?.[lang === 'fr' ? 'fr' : 'en'] || selected.status}
+              </span>
+              <button
+                onClick={() => setSelected(null)}
+                className="text-xs px-2 py-1 rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
+              >
+                {lang === 'fr' ? 'Fermer' : 'Close'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">
+              {lang === 'fr' ? 'Programmes dans cette promotion' : 'Programs in this promotion'}
+            </h3>
+            {(selected.programs || []).length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {lang === 'fr' ? 'Aucun programme associé.' : 'No programs linked to this promotion.'}
+              </p>
+            ) : (
+              <ul className="space-y-1 text-sm text-gray-800 dark:text-gray-200">
+                {selected.programs.map((pr) => (
+                  <li key={pr.id} className="flex items-center justify-between gap-2">
+                    <span>{lang === 'fr' ? pr.nameFr || pr.name : pr.name}</span>
+                    {pr.department && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{pr.department}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {modal && (

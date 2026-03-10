@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Clock, BookOpen, Building2, CalendarDays, Loader2, Filter } from 'lucide-react';
+import { Clock, BookOpen, Building2, CalendarDays, Loader2, Filter, Plus, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
 import { ExportReportButton } from '../../components/ExportReportButton';
@@ -8,6 +8,8 @@ import { ExportReportButton } from '../../components/ExportReportButton';
 interface ClassRow {
   id: string;
   programId: string;
+  promotionId?: string;
+  code?: string;
   name: string;
   startTime: string;
   endTime: string;
@@ -32,6 +34,8 @@ const DAY_NAMES: Record<number, { en: string; fr: string }> = {
   7: { en: 'Sunday', fr: 'Dimanche' },
 };
 
+const DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+
 export function Classes() {
   const { lang } = useLanguage();
   const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -42,6 +46,18 @@ export function Classes() {
   const [deptFilter, setDeptFilter] = useState('');
   const [programFilter, setProgramFilter] = useState('');
   const [promoFilter, setPromoFilter] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({
+    programId: '',
+    promotionId: '',
+    name: '',
+    startTime: '08:00',
+    endTime: '10:00',
+    room: '',
+    daysOfWeek: [] as number[],
+  });
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -80,6 +96,69 @@ export function Classes() {
 
   const dayLabel = (d: number | null) => (d != null ? DAY_NAMES[d]?.[lang === 'fr' ? 'fr' : 'en'] || String(d) : '—');
 
+  const toggleDay = (day: number) => {
+    setAddForm((f) => ({
+      ...f,
+      daysOfWeek: f.daysOfWeek.includes(day) ? f.daysOfWeek.filter((d) => d !== day) : [...f.daysOfWeek, day].sort((a, b) => a - b),
+    }));
+  };
+
+  const openAddModal = () => {
+    setAddForm({
+      programId: programFilter || programs[0]?.id || '',
+      promotionId: promoFilter || '',
+      name: '',
+      startTime: '08:00',
+      endTime: '10:00',
+      room: '',
+      daysOfWeek: [],
+    });
+    setAddError('');
+    setShowAddModal(true);
+  };
+
+  const saveNewClasses = async () => {
+    if (!addForm.programId) {
+      setAddError(lang === 'fr' ? 'Choisissez un programme.' : 'Select a program.');
+      return;
+    }
+    if (addForm.daysOfWeek.length === 0) {
+      setAddError(lang === 'fr' ? 'Sélectionnez au moins un jour.' : 'Select at least one day.');
+      return;
+    }
+    setAddSaving(true);
+    setAddError('');
+    try {
+      for (const dayOfWeek of addForm.daysOfWeek) {
+        await apiFetch('/classes', {
+          method: 'POST',
+          body: JSON.stringify({
+            programId: addForm.programId,
+            promotionId: addForm.promotionId || undefined,
+            name: addForm.name || undefined,
+            startTime: addForm.startTime,
+            endTime: addForm.endTime,
+            room: addForm.room || undefined,
+            dayOfWeek,
+          }),
+          requireAuth: true,
+        });
+      }
+      setShowAddModal(false);
+      const params = new URLSearchParams();
+      if (deptFilter) params.set('departmentId', deptFilter);
+      if (programFilter) params.set('programId', programFilter);
+      if (promoFilter) params.set('promotionId', promoFilter);
+      const url = params.toString() ? `/classes?${params}` : '/classes';
+      const data = await apiFetch(url, { requireAuth: true });
+      setClasses(data.classes || []);
+    } catch (e: any) {
+      setAddError(e.message || (lang === 'fr' ? 'Échec de l\'enregistrement' : 'Failed to save'));
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -91,19 +170,30 @@ export function Classes() {
             {lang === 'fr' ? 'Tous les créneaux par département, programme et promotion' : 'All class slots filterable by department, program and promotion'}
           </p>
         </div>
-        <ExportReportButton
-          data={classes.map((c) => ({
-            Department: lang === 'fr' ? (c.departmentNameFr ?? c.departmentName) : c.departmentName,
-            Program: lang === 'fr' ? (c.programNameFr ?? c.programName) : c.programName,
-            Class: c.name || `${c.startTime}-${c.endTime}`,
-            Day: dayLabel(c.dayOfWeek),
-            'Start': c.startTime,
-            'End': c.endTime,
-            Room: c.room || '—',
-          }))}
-          filename="classes"
-          compact
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-medium"
+            style={{ background: 'var(--btc-primary,#16a34a)' }}
+          >
+            <Plus size={18} /> {lang === 'fr' ? 'Nouvelle classe' : 'Add class'}
+          </button>
+          <ExportReportButton
+            data={classes.map((c) => ({
+              Department: lang === 'fr' ? (c.departmentNameFr ?? c.departmentName) : c.departmentName,
+              Program: lang === 'fr' ? (c.programNameFr ?? c.programName) : c.programName,
+              Code: c.code || '—',
+              Class: c.name || `${c.startTime}-${c.endTime}`,
+              Day: dayLabel(c.dayOfWeek),
+              'Start': c.startTime,
+              'End': c.endTime,
+              Room: c.room || '—',
+            }))}
+            filename="classes"
+            compact
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 items-center">
@@ -153,6 +243,7 @@ export function Classes() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Code' : 'Code'}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Département' : 'Department'}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Programme' : 'Program'}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Créneau' : 'Slot'}</th>
@@ -164,6 +255,7 @@ export function Classes() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {classes.map((c) => (
                   <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-xs">{c.code || '—'}</td>
                     <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">
                       {lang === 'fr' ? (c.departmentNameFr ?? c.departmentName) : c.departmentName}
                     </td>
@@ -179,6 +271,125 @@ export function Classes() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowAddModal(false)}>
+          <motion.div
+            initial={{ scale: 0.95 }}
+            animate={{ scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {lang === 'fr' ? 'Nouvelle classe' : 'Add class'}
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              {lang === 'fr'
+                ? 'Choisissez les jours de la semaine où la classe a lieu. Un créneau sera créé pour chaque jour sélectionné (même heure et salle).'
+                : 'Select the days of the week the class occurs. One slot will be created per selected day (same time and room).'}
+            </p>
+            {addError && <p className="text-sm text-red-500 mb-3">{addError}</p>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Programme' : 'Program'} *</label>
+                <select
+                  value={addForm.programId}
+                  onChange={(e) => setAddForm((f) => ({ ...f, programId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                >
+                  <option value="">—</option>
+                  {programs.map((p) => (
+                    <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Promotion' : 'Promotion'}</label>
+                <select
+                  value={addForm.promotionId}
+                  onChange={(e) => setAddForm((f) => ({ ...f, promotionId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                >
+                  <option value="">—</option>
+                  {promotions.map((p) => (
+                    <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Nom du créneau' : 'Slot name'}</label>
+                <input
+                  type="text"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder={lang === 'fr' ? 'Ex: Cours du matin' : 'e.g. Morning class'}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Heure début' : 'Start time'}</label>
+                  <input
+                    type="time"
+                    value={addForm.startTime}
+                    onChange={(e) => setAddForm((f) => ({ ...f, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Heure fin' : 'End time'}</label>
+                  <input
+                    type="time"
+                    value={addForm.endTime}
+                    onChange={(e) => setAddForm((f) => ({ ...f, endTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Salle' : 'Room'}</label>
+                <input
+                  type="text"
+                  value={addForm.room}
+                  onChange={(e) => setAddForm((f) => ({ ...f, room: e.target.value }))}
+                  placeholder="e.g. Room A"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{lang === 'fr' ? 'Jours de la semaine' : 'Days of the week'} *</label>
+                <div className="flex flex-wrap gap-2">
+                  {DAY_OPTIONS.map((day) => (
+                    <label key={day} className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addForm.daysOfWeek.includes(day)}
+                        onChange={() => toggleDay(day)}
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                      <span className="text-sm text-gray-800 dark:text-gray-200">{DAY_NAMES[day][lang === 'fr' ? 'fr' : 'en']}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button onClick={() => setShowAddModal(false)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
+                {lang === 'fr' ? 'Annuler' : 'Cancel'}
+              </button>
+              <button onClick={saveNewClasses} disabled={addSaving} className="px-4 py-2 rounded-xl text-white text-sm font-medium flex items-center gap-2" style={{ background: 'var(--btc-primary,#16a34a)' }}>
+                {addSaving && <Loader2 size={16} className="animate-spin" />}
+                {lang === 'fr' ? 'Créer les créneaux' : 'Create slots'}
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>
