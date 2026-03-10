@@ -145,7 +145,7 @@ export const programFees = pgTable('program_fees', {
   updatedAt: timestamptz('updated_at'),
 });
 
-// ─── Program classes (time slots per program, e.g. "6:00 to 7:30)
+// ─── Program classes (one record per logical class; calendar events are derived from daysOfWeek)
 export const programClasses = pgTable('program_classes', {
   id: uuid('id').primaryKey().defaultRandom(),
   programId: uuid('program_id').notNull(),
@@ -154,7 +154,8 @@ export const programClasses = pgTable('program_classes', {
   code: text('code').unique(), // unique code: department-program-promotion-class
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
-  dayOfWeek: integer('day_of_week'),
+  dayOfWeek: integer('day_of_week'), // legacy single day; prefer daysOfWeek
+  daysOfWeek: jsonb('days_of_week').default([]), // [1,3,5] = Mon, Wed, Fri — one class, events on these days
   room: text('room').default(''),
   sortOrder: integer('sort_order').default(0),
   createdAt: timestamptz('created_at').defaultNow(),

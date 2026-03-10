@@ -133,6 +133,7 @@ export function StaffSchedules() {
           body: JSON.stringify({
             classId: selectedSlot.classId,
             weekStart,
+            dayOfWeek: selectedSlot.dayOfWeek,
             staffId: form.staffId,
             lessonId: form.lessonId || undefined,
             lessonTitle: form.lessonTitle || undefined,

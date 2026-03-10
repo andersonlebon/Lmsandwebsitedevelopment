@@ -14,6 +14,7 @@ interface ClassRow {
   startTime: string;
   endTime: string;
   dayOfWeek: number | null;
+  daysOfWeek: number[];
   room: string;
   sortOrder: number;
   programName?: string;
@@ -95,6 +96,8 @@ export function Classes() {
   }, [deptFilter, programFilter, promoFilter]);
 
   const dayLabel = (d: number | null) => (d != null ? DAY_NAMES[d]?.[lang === 'fr' ? 'fr' : 'en'] || String(d) : '—');
+  const daysLabel = (days: number[]) =>
+    days.length ? days.sort((a, b) => a - b).map((d) => DAY_NAMES[d]?.[lang === 'fr' ? 'fr' : 'en'] || d).join(', ') : '—';
 
   const toggleDay = (day: number) => {
     setAddForm((f) => ({
@@ -117,7 +120,7 @@ export function Classes() {
     setShowAddModal(true);
   };
 
-  const saveNewClasses = async () => {
+  const saveNewClass = async () => {
     if (!addForm.programId) {
       setAddError(lang === 'fr' ? 'Choisissez un programme.' : 'Select a program.');
       return;
@@ -129,21 +132,19 @@ export function Classes() {
     setAddSaving(true);
     setAddError('');
     try {
-      for (const dayOfWeek of addForm.daysOfWeek) {
-        await apiFetch('/classes', {
-          method: 'POST',
-          body: JSON.stringify({
-            programId: addForm.programId,
-            promotionId: addForm.promotionId || undefined,
-            name: addForm.name || undefined,
-            startTime: addForm.startTime,
-            endTime: addForm.endTime,
-            room: addForm.room || undefined,
-            dayOfWeek,
-          }),
-          requireAuth: true,
-        });
-      }
+      await apiFetch('/classes', {
+        method: 'POST',
+        body: JSON.stringify({
+          programId: addForm.programId,
+          promotionId: addForm.promotionId || undefined,
+          name: addForm.name || undefined,
+          startTime: addForm.startTime,
+          endTime: addForm.endTime,
+          room: addForm.room || undefined,
+          daysOfWeek: addForm.daysOfWeek,
+        }),
+        requireAuth: true,
+      });
       setShowAddModal(false);
       const params = new URLSearchParams();
       if (deptFilter) params.set('departmentId', deptFilter);
@@ -185,7 +186,7 @@ export function Classes() {
               Program: lang === 'fr' ? (c.programNameFr ?? c.programName) : c.programName,
               Code: c.code || '—',
               Class: c.name || `${c.startTime}-${c.endTime}`,
-              Day: dayLabel(c.dayOfWeek),
+              Day: daysLabel(c.daysOfWeek ?? (c.dayOfWeek != null ? [c.dayOfWeek] : [])),
               'Start': c.startTime,
               'End': c.endTime,
               Room: c.room || '—',
@@ -263,7 +264,7 @@ export function Classes() {
                       {lang === 'fr' ? (c.programNameFr ?? c.programName) : c.programName}
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{dayLabel(c.dayOfWeek)}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{daysLabel(c.daysOfWeek ?? (c.dayOfWeek != null ? [c.dayOfWeek] : []))}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.startTime} – {c.endTime}</td>
                     <td className="px-4 py-3 text-gray-500">{c.room || '—'}</td>
                   </tr>
@@ -292,8 +293,8 @@ export function Classes() {
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {lang === 'fr'
-                ? 'Choisissez les jours de la semaine où la classe a lieu. Un créneau sera créé pour chaque jour sélectionné (même heure et salle).'
-                : 'Select the days of the week the class occurs. One slot will be created per selected day (same time and room).'}
+                ? 'Une seule classe est créée. Choisissez les jours où elle a lieu ; le calendrier affichera un événement par jour (même heure et salle).'
+                : 'One class is created. Select the days it runs; the calendar will show one event per day (same time and room).'}
             </p>
             {addError && <p className="text-sm text-red-500 mb-3">{addError}</p>}
             <div className="space-y-3">
@@ -384,9 +385,9 @@ export function Classes() {
               <button onClick={() => setShowAddModal(false)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
                 {lang === 'fr' ? 'Annuler' : 'Cancel'}
               </button>
-              <button onClick={saveNewClasses} disabled={addSaving} className="px-4 py-2 rounded-xl text-white text-sm font-medium flex items-center gap-2" style={{ background: 'var(--btc-primary,#16a34a)' }}>
+              <button onClick={saveNewClass} disabled={addSaving} className="px-4 py-2 rounded-xl text-white text-sm font-medium flex items-center gap-2" style={{ background: 'var(--btc-primary,#16a34a)' }}>
                 {addSaving && <Loader2 size={16} className="animate-spin" />}
-                {lang === 'fr' ? 'Créer les créneaux' : 'Create slots'}
+                {lang === 'fr' ? 'Créer la classe' : 'Create class'}
               </button>
             </div>
           </motion.div>

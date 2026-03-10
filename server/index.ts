@@ -678,7 +678,7 @@ function slugForCode(s: string, maxLen = 8): string {
   return (slug || 'X').slice(0, maxLen);
 }
 
-async function generateUniqueClassCode(programId: string, promotionId: string | null, name: string | null, startTime: string, dayOfWeek: number | null, excludeId?: string): Promise<string> {
+async function generateUniqueClassCode(programId: string, promotionId: string | null, name: string | null, startTime: string, daysOfWeek: number[], excludeId?: string): Promise<string> {
   const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!prog) return `CLASS-${programId.slice(0, 8)}`;
   const [dept] = await db.select().from(departments).where(eq(departments.id, prog.departmentId));
@@ -691,7 +691,7 @@ async function generateUniqueClassCode(programId: string, promotionId: string | 
   const timePart = (startTime || '').replace(':', '').slice(0, 2) || '00';
   const classPart = (name && name.trim())
     ? slugForCode(name, 4)
-    : `D${dayOfWeek ?? 0}${timePart}`;
+    : (daysOfWeek.length ? `D${daysOfWeek[0]}${timePart}` : `T${timePart}`);
   let code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
   let n = 1;
   while (true) {
@@ -704,6 +704,7 @@ async function generateUniqueClassCode(programId: string, promotionId: string | 
 }
 
 function classRowToApi(row: any) {
+  const daysOfWeek = Array.isArray(row.daysOfWeek) ? row.daysOfWeek : (row.dayOfWeek != null ? [row.dayOfWeek] : []);
   return {
     id: row.id,
     programId: row.programId,
@@ -712,7 +713,8 @@ function classRowToApi(row: any) {
     name: row.name ?? '',
     startTime: row.startTime,
     endTime: row.endTime,
-    dayOfWeek: row.dayOfWeek ?? null,
+    dayOfWeek: row.dayOfWeek ?? (daysOfWeek[0] ?? null),
+    daysOfWeek,
     room: row.room ?? '',
     sortOrder: row.sortOrder ?? 0,
     createdAt: row.createdAt,
@@ -727,7 +729,7 @@ app.get('/classes', async (c) => {
     const promotionId = c.req.query('promotionId');
     if (programId) {
       const rows = await db.select().from(programClasses).where(eq(programClasses.programId, programId)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
-      return c.json({ classes: rows.map(classRowToApi) });
+      return c.json({ classes: rows.map((r) => classRowToApi(r)) });
     }
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
@@ -749,6 +751,7 @@ app.get('/classes', async (c) => {
         startTime: programClasses.startTime,
         endTime: programClasses.endTime,
         dayOfWeek: programClasses.dayOfWeek,
+        daysOfWeek: programClasses.daysOfWeek,
         room: programClasses.room,
         sortOrder: programClasses.sortOrder,
         progName: programs.name,
@@ -765,16 +768,7 @@ app.get('/classes', async (c) => {
       .orderBy(asc(departments.sortOrder), asc(programs.name), asc(programClasses.sortOrder), asc(programClasses.startTime));
     return c.json({
       classes: rows.map((r) => ({
-        id: r.id,
-        programId: r.programId,
-        promotionId: r.promotionId ?? undefined,
-        code: r.code ?? undefined,
-        name: r.name,
-        startTime: r.startTime,
-        endTime: r.endTime,
-        dayOfWeek: r.dayOfWeek,
-        room: r.room,
-        sortOrder: r.sortOrder,
+        ...classRowToApi(r),
         programName: r.progName,
         programNameFr: r.progNameFr,
         departmentId: r.deptId,
@@ -793,7 +787,7 @@ app.get('/programs/:id/classes', async (c) => {
   try {
     const id = c.req.param('id');
     const rows = await db.select().from(programClasses).where(eq(programClasses.programId, id)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
-    return c.json({ classes: rows.map(classRowToApi) });
+    return c.json({ classes: rows.map((r) => classRowToApi(r)) });
   } catch (e) {
     console.error('List program classes error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -812,8 +806,9 @@ app.post('/classes', async (c) => {
     const promotionId = body.promotionId ?? body.promotion_id ?? null;
     const name = body.name ?? '';
     const startTime = String(body.startTime ?? '');
-    const dayOfWeek = body.dayOfWeek != null ? Number(body.dayOfWeek) : null;
-    const code = await generateUniqueClassCode(programId, promotionId, name || null, startTime, dayOfWeek);
+    const daysOfWeek = Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((d: unknown) => Number(d)).filter((d: number) => d >= 1 && d <= 7) : [];
+    const legacyDay = daysOfWeek.length ? daysOfWeek[0] : null;
+    const code = await generateUniqueClassCode(programId, promotionId, name || null, startTime, daysOfWeek);
     const [inserted] = await db.insert(programClasses).values({
       programId,
       promotionId: promotionId || undefined,
@@ -821,7 +816,8 @@ app.post('/classes', async (c) => {
       name,
       startTime,
       endTime: String(body.endTime ?? ''),
-      dayOfWeek,
+      dayOfWeek: legacyDay,
+      daysOfWeek: daysOfWeek.length ? daysOfWeek : [],
       room: body.room ?? '',
       sortOrder: body.sortOrder ?? body.sort_order ?? 0,
     }).returning();
@@ -845,9 +841,12 @@ app.put('/classes/:id', async (c) => {
     const programId = body.programId ?? body.program_id ?? existing.programId;
     const promotionId = body.promotionId !== undefined ? (body.promotionId || null) : existing.promotionId;
     const startTime = body.startTime !== undefined ? String(body.startTime) : existing.startTime;
-    const dayOfWeek = body.dayOfWeek !== undefined ? (body.dayOfWeek == null ? null : Number(body.dayOfWeek)) : existing.dayOfWeek;
+    const daysOfWeek = body.daysOfWeek !== undefined
+      ? (Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((d: unknown) => Number(d)).filter((d: number) => d >= 1 && d <= 7) : [])
+      : (Array.isArray((existing as any).daysOfWeek) ? (existing as any).daysOfWeek : (existing.dayOfWeek != null ? [existing.dayOfWeek] : []));
+    const legacyDay = daysOfWeek.length ? daysOfWeek[0] : null;
     const codeChanged = name !== existing.name || programId !== existing.programId || promotionId !== existing.promotionId;
-    const code = codeChanged ? await generateUniqueClassCode(programId, promotionId, name || null, startTime, dayOfWeek) : existing.code;
+    const code = codeChanged ? await generateUniqueClassCode(programId, promotionId, name || null, startTime, daysOfWeek) : existing.code;
     await db.update(programClasses).set({
       name,
       programId: body.programId !== undefined ? body.programId : existing.programId,
@@ -855,7 +854,8 @@ app.put('/classes/:id', async (c) => {
       code: code ?? undefined,
       startTime,
       endTime: body.endTime !== undefined ? String(body.endTime) : existing.endTime,
-      dayOfWeek,
+      dayOfWeek: legacyDay,
+      daysOfWeek: daysOfWeek,
       room: body.room !== undefined ? body.room : existing.room,
       sortOrder: body.sortOrder ?? body.sort_order ?? existing.sortOrder,
       updatedAt: new Date(),
@@ -2495,12 +2495,18 @@ app.get('/portal/calendar/day', async (c) => {
         startTime: programClasses.startTime,
         endTime: programClasses.endTime,
         room: programClasses.room,
+        dayOfWeek: programClasses.dayOfWeek,
+        daysOfWeek: programClasses.daysOfWeek,
         progName: programs.name,
         progNameFr: programs.nameFr,
       }).from(programClasses)
         .innerJoin(programs, eq(programClasses.programId, programs.id))
-        .where(and(inArray(programClasses.id, classIds), eq(programClasses.dayOfWeek, dayOfWeek)));
+        .where(inArray(programClasses.id, classIds));
       for (const r of rows) {
+        const days: number[] = Array.isArray(r.daysOfWeek) && (r.daysOfWeek as number[]).length > 0
+          ? (r.daysOfWeek as number[])
+          : (r.dayOfWeek != null ? [r.dayOfWeek] : []);
+        if (!days.includes(dayOfWeek)) continue;
         const enr = myEnrollments.find((e) => e.classId === r.id);
         if (enr) classesToday.push({ ...r, enrollmentId: enr.id });
       }
@@ -2768,12 +2774,13 @@ app.get('/staff-schedules/week', async (c) => {
         startTime: programClasses.startTime,
         endTime: programClasses.endTime,
         dayOfWeek: programClasses.dayOfWeek,
+        daysOfWeek: programClasses.daysOfWeek,
         room: programClasses.room,
       })
       .from(programClasses)
       .innerJoin(programs, eq(programClasses.programId, programs.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(programClasses.dayOfWeek), asc(programClasses.startTime));
+      .orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
     const schedulesRows = await db
       .select({
         id: staffSchedules.id,
@@ -2797,28 +2804,35 @@ app.get('/staff-schedules/week', async (c) => {
       const key = `${s.classId}-${s.dayOfWeek}-${s.startTime}`;
       scheduleByKey.set(key, s);
     }
-    const slots = classesRows.map((cl) => {
-      const key = `${cl.id}-${cl.dayOfWeek ?? 0}-${cl.startTime}`;
-      const schedule = scheduleByKey.get(key);
-      const lessonDisplay = schedule?.lessonTitle ?? schedule?.lessonName ?? schedule?.lessonNameFr ?? null;
-      return {
-        classId: cl.id,
-        classCode: cl.code ?? undefined,
-        className: cl.name,
-        programId: cl.programId,
-        programName: cl.programName,
-        programNameFr: cl.programNameFr,
-        dayOfWeek: cl.dayOfWeek ?? 0,
-        startTime: cl.startTime,
-        endTime: cl.endTime,
-        room: cl.room,
-        scheduleId: schedule?.id ?? null,
-        staffId: schedule?.staffId ?? null,
-        staffName: schedule?.staffName ?? null,
-        lessonId: schedule?.lessonId ?? null,
-        lessonTitle: lessonDisplay,
-      };
-    });
+    const slots: any[] = [];
+    for (const cl of classesRows) {
+      const days: number[] = Array.isArray(cl.daysOfWeek) && (cl.daysOfWeek as number[]).length > 0
+        ? (cl.daysOfWeek as number[])
+        : (cl.dayOfWeek != null ? [cl.dayOfWeek] : []);
+      for (const dayOfWeek of days) {
+        const key = `${cl.id}-${dayOfWeek}-${cl.startTime}`;
+        const schedule = scheduleByKey.get(key);
+        const lessonDisplay = schedule?.lessonTitle ?? schedule?.lessonName ?? schedule?.lessonNameFr ?? null;
+        slots.push({
+          classId: cl.id,
+          classCode: cl.code ?? undefined,
+          className: cl.name,
+          programId: cl.programId,
+          programName: cl.programName,
+          programNameFr: cl.programNameFr,
+          dayOfWeek,
+          startTime: cl.startTime,
+          endTime: cl.endTime,
+          room: cl.room,
+          scheduleId: schedule?.id ?? null,
+          staffId: schedule?.staffId ?? null,
+          staffName: schedule?.staffName ?? null,
+          lessonId: schedule?.lessonId ?? null,
+          lessonTitle: lessonDisplay,
+        });
+      }
+    }
+    slots.sort((a, b) => a.dayOfWeek - b.dayOfWeek || String(a.startTime).localeCompare(String(b.startTime)));
     return c.json({ weekStart, slots });
   } catch (e) {
     console.error('Staff schedules week error:', e);
@@ -2836,7 +2850,10 @@ app.post('/staff-schedules', async (c) => {
     if (!classId || !weekStart) return c.json({ error: 'classId and weekStart required' }, 400);
     const [classRow] = await db.select().from(programClasses).where(eq(programClasses.id, classId));
     if (!classRow) return c.json({ error: 'Class not found' }, 404);
-    const dayOfWeek = Number(classRow.dayOfWeek ?? 1);
+    const days = Array.isArray((classRow as any).daysOfWeek) && (classRow as any).daysOfWeek.length
+      ? (classRow as any).daysOfWeek
+      : (classRow.dayOfWeek != null ? [classRow.dayOfWeek] : [1]);
+    const dayOfWeek = body.dayOfWeek != null ? Number(body.dayOfWeek) : Number(days[0]);
     const startTime = String(classRow.startTime);
     const endTime = String(classRow.endTime);
     const room = classRow.room ?? null;

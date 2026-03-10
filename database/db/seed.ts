@@ -153,32 +153,28 @@ async function seed() {
     console.log('Seeded program_fees for', programIds.length, 'programs.');
   }
 
-  // ─── Program classes (time slots per program) ─────────────────────────
+  // ─── Program classes (one class per time slot; events = class on each day in daysOfWeek)
   const classSlots = [
-    { startTime: '08:00', endTime: '10:00', dayOfWeek: 1, name: 'Mon 8h-10h', room: 'Room A' },
-    { startTime: '14:00', endTime: '16:00', dayOfWeek: 3, name: 'Wed 14h-16h', room: 'Room B' },
-    { startTime: '10:00', endTime: '12:00', dayOfWeek: 5, name: 'Fri 10h-12h', room: 'Room A' },
+    { startTime: '08:00', endTime: '10:00', name: 'Mon/Wed/Fri 8h-10h', room: 'Room A' },
+    { startTime: '14:00', endTime: '16:00', name: 'Mon/Wed/Fri 14h-16h', room: 'Room B' },
+    { startTime: '10:00', endTime: '12:00', name: 'Mon/Wed/Fri 10h-12h', room: 'Room A' },
   ];
-  const allClassIds: string[] = [];
+  const daysOfWeekSeed = [1, 3, 5]; // Mon, Wed, Fri
   for (const programId of programIds) {
     const existing = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.programId, programId)).limit(1);
-    if (existing.length > 0) {
-      const all = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.programId, programId));
-      allClassIds.push(...all.map((c) => c.id));
-      continue;
-    }
-    const inserted = await db.insert(programClasses).values(
+    if (existing.length > 0) continue;
+    await db.insert(programClasses).values(
       classSlots.map((s, i) => ({
         programId,
         name: s.name,
         startTime: s.startTime,
         endTime: s.endTime,
-        dayOfWeek: s.dayOfWeek,
+        dayOfWeek: daysOfWeekSeed[0],
+        daysOfWeek: daysOfWeekSeed,
         room: s.room,
         sortOrder: i + 1,
       }))
-    ).returning({ id: programClasses.id });
-    inserted.forEach((r) => allClassIds.push(r.id));
+    );
   }
   console.log('Seeded program_classes for', programIds.length, 'programs.');
 
@@ -275,6 +271,7 @@ async function seed() {
       name: programClasses.name,
       startTime: programClasses.startTime,
       dayOfWeek: programClasses.dayOfWeek,
+      daysOfWeek: programClasses.daysOfWeek,
       code: programClasses.code,
     })
     .from(programClasses);
@@ -289,10 +286,11 @@ async function seed() {
     const promoName = cls.promotionId ? promotionNameById[cls.promotionId] : null;
     const promoSlug = promoName ? slugForCode(promoName, 2) : 'AL';
     const timePart = String(cls.startTime || '').replace(':', '').slice(0, 2) || '00';
+    const days = Array.isArray(cls.daysOfWeek) && cls.daysOfWeek.length ? (cls.daysOfWeek as number[]) : (cls.dayOfWeek != null ? [cls.dayOfWeek] : []);
     const classPart =
       cls.name && cls.name.trim()
-        ? slugForCode(cls.name, 4)
-        : `D${cls.dayOfWeek ?? 0}${timePart}`;
+        ? slugForCode(cls.name, 4) + timePart
+        : (days.length ? `D${days[0]}${timePart}` : `T${timePart}`);
     const code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
     await db
       .update(programClasses)
