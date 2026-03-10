@@ -10,6 +10,7 @@ import {
   programClasses,
   promotions,
   promotionPrograms,
+  promotionClasses,
   learningActivities,
   activityItems,
   activityPromotions,
@@ -232,7 +233,7 @@ async function seed() {
   }
   console.log('Seeded promotions:', promotionIds.length);
 
-  // ─── Promotion ↔ Program (link promotions to programs) ────────────────
+  // ─── Promotion ↔ Program (legacy; kept for backward compat) ───────────
   for (const promotionId of promotionIds) {
     const existing = await db.select({ id: promotionPrograms.id }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId)).limit(1);
     if (existing.length > 0) continue;
@@ -245,6 +246,28 @@ async function seed() {
     }
   }
   console.log('Seeded promotion_programs.');
+
+  // ─── Promotion ↔ Class (promotion contains selected classes only; subset per program) ─
+  const classRowsForPromo = await db.select({ id: programClasses.id, programId: programClasses.programId }).from(programClasses).orderBy(asc(programClasses.programId), asc(programClasses.sortOrder));
+  const classesByProgram = new Map<string, string[]>();
+  for (const c of classRowsForPromo) {
+    const list = classesByProgram.get(c.programId) ?? [];
+    list.push(c.id);
+    classesByProgram.set(c.programId, list);
+  }
+  for (const promotionId of promotionIds) {
+    const existing = await db.select({ id: promotionClasses.id }).from(promotionClasses).where(eq(promotionClasses.promotionId, promotionId)).limit(1);
+    if (existing.length > 0) continue;
+    let sortOrder = 0;
+    for (const programId of programIds) {
+      const ids = classesByProgram.get(programId) ?? [];
+      const subset = ids.slice(0, 2);
+      for (const classId of subset) {
+        await db.insert(promotionClasses).values({ promotionId, classId, sortOrder: sortOrder++ });
+      }
+    }
+  }
+  console.log('Seeded promotion_classes (subset of classes per promotion).');
 
   // ─── Generate class codes for all classes (department-program-promotion-time) ─
   const programRows = await db
@@ -267,7 +290,6 @@ async function seed() {
     .select({
       id: programClasses.id,
       programId: programClasses.programId,
-      promotionId: programClasses.promotionId,
       name: programClasses.name,
       startTime: programClasses.startTime,
       dayOfWeek: programClasses.dayOfWeek,
@@ -283,15 +305,13 @@ async function seed() {
     const deptSlug = prog.departmentId ? deptSlugById[prog.departmentId] : undefined;
     const deptPart = deptSlug ? slugForCode(deptSlug, 3) : 'DEP';
     const progPart = slugForCode(prog.name ?? '', 3);
-    const promoName = cls.promotionId ? promotionNameById[cls.promotionId] : null;
-    const promoSlug = promoName ? slugForCode(promoName, 2) : 'AL';
     const timePart = String(cls.startTime || '').replace(':', '').slice(0, 2) || '00';
     const days = Array.isArray(cls.daysOfWeek) && cls.daysOfWeek.length ? (cls.daysOfWeek as number[]) : (cls.dayOfWeek != null ? [cls.dayOfWeek] : []);
     const classPart =
       cls.name && cls.name.trim()
         ? slugForCode(cls.name, 4) + timePart
         : (days.length ? `D${days[0]}${timePart}` : `T${timePart}`);
-    const code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
+    const code = `${deptPart}-${progPart}-${classPart}`;
     await db
       .update(programClasses)
       .set({ code })

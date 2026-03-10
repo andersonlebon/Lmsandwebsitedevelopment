@@ -146,12 +146,12 @@ export const programFees = pgTable('program_fees', {
 });
 
 // ─── Program classes (one record per logical class; calendar events are derived from daysOfWeek)
+// Class belongs to program only; promotion–class many-to-many is in promotion_classes (class can be in many promotions)
 export const programClasses = pgTable('program_classes', {
   id: uuid('id').primaryKey().defaultRandom(),
   programId: uuid('program_id').notNull(),
-  promotionId: uuid('promotion_id'), // optional: class can be scoped to a promotion
   name: text('name').default(''),
-  code: text('code').unique(), // unique code: department-program-promotion-class
+  code: text('code').unique(), // unique code: department-program-class
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
   dayOfWeek: integer('day_of_week'), // legacy single day; prefer daysOfWeek
@@ -202,7 +202,7 @@ export const promotions = pgTable('promotions', {
   updatedAt: timestamptz('updated_at'),
 });
 
-// ─── Promotion ↔ Program (many-to-many) ──────────────────────────────────
+// ─── Promotion ↔ Program (many-to-many) — legacy; prefer promotion_classes ─
 export const promotionPrograms = pgTable('promotion_programs', {
   id: uuid('id').primaryKey().defaultRandom(),
   promotionId: uuid('promotion_id').notNull(),
@@ -211,6 +211,18 @@ export const promotionPrograms = pgTable('promotion_programs', {
   createdAt: timestamptz('created_at'),
   updatedAt: timestamptz('updated_at'),
 });
+
+// ─── Promotion ↔ Class (promotion contains selected classes, not whole programs) ─
+export const promotionClasses = pgTable('promotion_classes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  promotionId: uuid('promotion_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamptz('created_at'),
+  updatedAt: timestamptz('updated_at'),
+}, (t) => ({
+  promotionClassUnique: unique().on(t.promotionId, t.classId),
+}));
 
 // ─── Enrollments (student in a promotion → program, optional class) ─────
 export const enrollments = pgTable('enrollments', {
@@ -491,6 +503,7 @@ export const programsRelations = relations(programs, ({ one, many }) => ({
 export const programClassesRelations = relations(programClasses, ({ one, many }) => ({
   program: one(programs, { fields: [programClasses.programId], references: [programs.id] }),
   activityClasses: many(activityClasses),
+  promotionClasses: many(promotionClasses),
 }));
 
 export const learningActivitiesRelations = relations(learningActivities, ({ one, many }) => ({
@@ -533,8 +546,14 @@ export const promotionProgramsRelations = relations(promotionPrograms, ({ one })
   program: one(programs, { fields: [promotionPrograms.programId], references: [programs.id] }),
 }));
 
+export const promotionClassesRelations = relations(promotionClasses, ({ one }) => ({
+  promotion: one(promotions, { fields: [promotionClasses.promotionId], references: [promotions.id] }),
+  class: one(programClasses, { fields: [promotionClasses.classId], references: [programClasses.id] }),
+}));
+
 export const promotionsRelations = relations(promotions, ({ many }) => ({
   promotionPrograms: many(promotionPrograms),
+  promotionClasses: many(promotionClasses),
   enrollments: many(enrollments),
   activityPromotions: many(activityPromotions),
 }));

@@ -8,7 +8,6 @@ import { ExportReportButton } from '../../components/ExportReportButton';
 interface ClassRow {
   id: string;
   programId: string;
-  promotionId?: string;
   code?: string;
   name: string;
   startTime: string;
@@ -50,7 +49,6 @@ export function Classes() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({
     programId: '',
-    promotionId: '',
     name: '',
     startTime: '08:00',
     endTime: '10:00',
@@ -109,7 +107,6 @@ export function Classes() {
   const openAddModal = () => {
     setAddForm({
       programId: programFilter || programs[0]?.id || '',
-      promotionId: promoFilter || '',
       name: '',
       startTime: '08:00',
       endTime: '10:00',
@@ -136,7 +133,6 @@ export function Classes() {
         method: 'POST',
         body: JSON.stringify({
           programId: addForm.programId,
-          promotionId: addForm.promotionId || undefined,
           name: addForm.name || undefined,
           startTime: addForm.startTime,
           endTime: addForm.endTime,
@@ -307,19 +303,6 @@ export function Classes() {
                 >
                   <option value="">—</option>
                   {programs.map((p) => (
-                    <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Promotion' : 'Promotion'}</label>
-                <select
-                  value={addForm.promotionId}
-                  onChange={(e) => setAddForm((f) => ({ ...f, promotionId: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                >
-                  <option value="">—</option>
-                  {promotions.map((p) => (
                     <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
                   ))}
                 </select>

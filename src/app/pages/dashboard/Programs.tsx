@@ -106,7 +106,7 @@ export function Programs() {
   const [successMsg, setSuccessMsg] = useState('');
   const [programClasses, setProgramClasses] = useState<{ id: string; programId: string; name: string; startTime: string; endTime: string; dayOfWeek?: number | null; room?: string }[]>([]);
   const [classModal, setClassModal] = useState(false);
-  const [classForm, setClassForm] = useState({ startTime: '', endTime: '', name: '', room: '' });
+  const [classForm, setClassForm] = useState({ startTime: '08:00', endTime: '10:00', name: '', room: '' });
   const [savingClass, setSavingClass] = useState(false);
 
   useEffect(() => {
@@ -156,7 +156,7 @@ export function Programs() {
       });
       const data = await apiFetch(`/programs/${expandedId}/classes`);
       setProgramClasses(data.classes || []);
-      setClassForm({ startTime: '', endTime: '', name: '', room: '' });
+      setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '' });
       setClassModal(false);
     } catch (e: any) {
       setError(e.message || (lang === 'fr' ? 'Erreur' : 'Error'));
@@ -574,7 +574,7 @@ export function Programs() {
                             <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                               <Clock size={12} /> {lang === 'fr' ? 'Créneaux' : 'Class times'}
                             </span>
-                            <button type="button" onClick={e => { e.stopPropagation(); setClassForm({ startTime: '', endTime: '', name: '', room: '' }); setClassModal(true); }}
+                            <button type="button" onClick={e => { e.stopPropagation(); setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '' }); setClassModal(true); }}
                               className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1">
                               <Plus size={12} /> {lang === 'fr' ? 'Ajouter' : 'Add'}
                             </button>
@@ -632,13 +632,13 @@ export function Programs() {
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Heure de début' : 'Start time'}</label>
-                  <input type="text" value={classForm.startTime} onChange={e => setClassForm(f => ({ ...f, startTime: e.target.value }))}
-                    placeholder="6:00" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                  <input type="time" value={classForm.startTime} onChange={e => setClassForm(f => ({ ...f, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Heure de fin' : 'End time'}</label>
-                  <input type="text" value={classForm.endTime} onChange={e => setClassForm(f => ({ ...f, endTime: e.target.value }))}
-                    placeholder="7:30" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+                  <input type="time" value={classForm.endTime} onChange={e => setClassForm(f => ({ ...f, endTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Nom (optionnel)' : 'Name (optional)'}</label>

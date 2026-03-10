@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { CalendarDays, Plus, Edit2, Trash2, X, Loader2 } from 'lucide-react';
+import { CalendarDays, Plus, Edit2, Trash2, X, Loader2, ChevronDown, ChevronUp, Clock, BookOpen } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
+import { ExportReportButton } from '../../components/ExportReportButton';
 
 const DURATION_UNITS = [
   { id: 'days', en: 'Days', fr: 'Jours' },
@@ -17,6 +19,17 @@ const STATUS_OPTIONS = [
   { id: 'ended', en: 'Ended', fr: 'Terminée' },
 ];
 
+const DAY_OPTIONS: { value: string; en: string; fr: string }[] = [
+  { value: '', en: 'All days', fr: 'Tous les jours' },
+  { value: '1', en: 'Monday', fr: 'Lundi' },
+  { value: '2', en: 'Tuesday', fr: 'Mardi' },
+  { value: '3', en: 'Wednesday', fr: 'Mercredi' },
+  { value: '4', en: 'Thursday', fr: 'Jeudi' },
+  { value: '5', en: 'Friday', fr: 'Vendredi' },
+  { value: '6', en: 'Saturday', fr: 'Samedi' },
+  { value: '7', en: 'Sunday', fr: 'Dimanche' },
+];
+
 interface PromotionProgram {
   id: string;
   name: string;
@@ -24,11 +37,26 @@ interface PromotionProgram {
   department?: string;
 }
 
+interface PromotionClass {
+  id: string;
+  name: string;
+  code?: string;
+  programId: string;
+  programName: string;
+  programNameFr?: string;
+  department?: string;
+  startTime?: string;
+  endTime?: string;
+  daysOfWeek?: number[];
+  room?: string;
+}
+
 interface Promotion {
   id: string;
   name: string;
   nameFr: string;
   programs: PromotionProgram[];
+  classes?: PromotionClass[];
   startDate: string;
   endDate: string;
   durationUnit: string;
@@ -38,7 +66,7 @@ interface Promotion {
 export function Promotions() {
   const { lang } = useLanguage();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [programs, setPrograms] = useState<{ id: string; name: string; nameFr: string; department?: string; departmentName?: string; departmentNameFr?: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: string; name: string; code?: string; programId: string; programName: string; programNameFr?: string; departmentName?: string; departmentNameFr?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Promotion | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
@@ -46,7 +74,7 @@ export function Promotions() {
   const [form, setForm] = useState({
     name: '',
     nameFr: '',
-    programIds: [] as string[],
+    classIds: [] as string[],
     startDate: '',
     endDate: '',
     durationUnit: 'months',
@@ -54,16 +82,38 @@ export function Promotions() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [dayFilter, setDayFilter] = useState<string>('');
+
+  function promotionHasClassOnDay(p: Promotion, dayOfWeek: number): boolean {
+    const classesList = p.classes || [];
+    return classesList.some((cl) => {
+      const days = Array.isArray(cl.daysOfWeek) && cl.daysOfWeek.length ? cl.daysOfWeek : [];
+      return days.includes(dayOfWeek);
+    });
+  }
+
+  const filteredPromotions = dayFilter
+    ? promotions.filter((p) => promotionHasClassOnDay(p, Number(dayFilter)))
+    : promotions;
 
   useEffect(() => {
     (async () => {
       try {
-        const [promRes, progRes] = await Promise.all([
+        const [promRes, classesRes] = await Promise.all([
           apiFetch('/promotions'),
-          apiFetch('/programs'),
+          apiFetch('/classes', { requireAuth: true }),
         ]);
         setPromotions(promRes.promotions || []);
-        setPrograms((progRes.programs || []).map((p: any) => ({ id: p.id, name: p.name, nameFr: p.nameFr || p.name, department: p.department, departmentName: p.departmentName, departmentNameFr: p.departmentNameFr })));
+        setClasses((classesRes.classes || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          code: c.code,
+          programId: c.programId,
+          programName: c.programName || '',
+          programNameFr: c.programNameFr,
+          departmentName: c.departmentName,
+          departmentNameFr: c.departmentNameFr,
+        })));
       } catch (e) {
         console.error(e);
       } finally {
@@ -73,7 +123,7 @@ export function Promotions() {
   }, []);
 
   const openAdd = () => {
-    setForm({ name: '', nameFr: '', programIds: [], startDate: '', endDate: '', durationUnit: 'months', status: 'upcoming' });
+    setForm({ name: '', nameFr: '', classIds: [], startDate: '', endDate: '', durationUnit: 'months', status: 'upcoming' });
     setEditing(null);
     setError('');
     setModal('add');
@@ -83,7 +133,7 @@ export function Promotions() {
     setForm({
       name: p.name,
       nameFr: p.nameFr || '',
-      programIds: (p.programs || []).map((pr) => pr.id),
+      classIds: (p.classes || []).map((c) => c.id),
       startDate: p.startDate || '',
       endDate: p.endDate || '',
       durationUnit: p.durationUnit || 'months',
@@ -94,12 +144,12 @@ export function Promotions() {
     setModal('edit');
   };
 
-  const toggleProgram = (programId: string) => {
+  const toggleClass = (classId: string) => {
     setForm((f) => ({
       ...f,
-      programIds: f.programIds.includes(programId)
-        ? f.programIds.filter((id) => id !== programId)
-        : [...f.programIds, programId],
+      classIds: f.classIds.includes(classId)
+        ? f.classIds.filter((id) => id !== classId)
+        : [...f.classIds, classId],
     }));
   };
 
@@ -111,7 +161,7 @@ export function Promotions() {
     setSaving(true);
     setError('');
     try {
-      const payload = { name: form.name, nameFr: form.nameFr, startDate: form.startDate, endDate: form.endDate, durationUnit: form.durationUnit, status: form.status, programIds: form.programIds };
+      const payload = { name: form.name, nameFr: form.nameFr, startDate: form.startDate, endDate: form.endDate, durationUnit: form.durationUnit, status: form.status, classIds: form.classIds };
       if (modal === 'add') {
         const res = await apiFetch('/promotions', { method: 'POST', body: JSON.stringify(payload), requireAuth: true });
         setPromotions((prev) => [...prev, res.promotion]);
@@ -145,146 +195,200 @@ export function Promotions() {
     );
   }
 
+  const exportData = filteredPromotions.map((p) => ({
+    Name: p.name,
+    'Name (FR)': p.nameFr || '',
+    'Start date': p.startDate || '',
+    'End date': p.endDate || '',
+    'Duration unit': p.durationUnit || '',
+    Status: p.status,
+    'Classes count': (p.classes || []).length,
+    Programs: (p.programs || []).map((pr) => (lang === 'fr' ? pr.nameFr || pr.name : pr.name)).join('; '),
+  }));
+
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6 w-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl text-gray-900 dark:text-white font-bold" style={{ fontFamily: 'Poppins' }}>
             {lang === 'fr' ? 'Promotions' : 'Promotions'}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-            {lang === 'fr' ? 'Créer des promotions (programme + dates) pour les inscriptions.' : 'Create promotions (program + dates) for enrollment.'}
+            {lang === 'fr'
+              ? 'Créez d\'abord les programmes et les frais, puis les créneaux dans chaque programme. Ici, lancez une promotion en sélectionnant les classes à inclure.'
+              : 'Create programs and fees first, then add classes in each program. Here you launch a promotion by selecting which classes to include.'}
           </p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-lg hover:opacity-90"
-          style={{ background: 'var(--btc-primary,#16a34a)' }}
-        >
-          <Plus size={18} /> {lang === 'fr' ? 'Nouvelle promotion' : 'New promotion'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={dayFilter}
+            onChange={(e) => { setDayFilter(e.target.value); setSelected(null); }}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[140px]"
+            title={lang === 'fr' ? 'Filtrer par jour' : 'Filter by day'}
+          >
+            {DAY_OPTIONS.map((d) => (
+              <option key={d.value || 'all'} value={d.value}>{lang === 'fr' ? d.fr : d.en}</option>
+            ))}
+          </select>
+          <ExportReportButton data={exportData} filename="promotions" label={lang === 'fr' ? 'Exporter' : 'Export'} compact />
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-lg hover:opacity-90"
+            style={{ background: 'var(--btc-primary,#16a34a)' }}
+          >
+            <Plus size={18} /> {lang === 'fr' ? 'Nouvelle promotion' : 'New promotion'}
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-2">
         {promotions.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
-            {lang === 'fr' ? 'Aucune promotion. Créez-en une pour que les étudiants puissent s\'inscrire.' : 'No promotions yet. Create one so students can enroll.'}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
+            {lang === 'fr' ? 'Aucune promotion. ' : 'No promotions yet. '}
+            <Link to="/dashboard/academic/programs" className="text-green-600 dark:text-green-400 font-medium hover:underline">
+              {lang === 'fr' ? 'Créez d\'abord les programmes et les créneaux' : 'Create programs and classes first'}
+            </Link>
+            {lang === 'fr' ? ', puis lancez une promotion ici.' : ', then launch a promotion here.'}
+          </div>
+        ) : filteredPromotions.length === 0 ? (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
+            {lang === 'fr' ? 'Aucune promotion avec des cours ce jour-là.' : 'No promotions with classes on this day.'}
           </div>
         ) : (
-          promotions.map((p) => {
+          filteredPromotions.map((p) => {
             const start = p.startDate ? new Date(p.startDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US') : '';
             const end = p.endDate ? new Date(p.endDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US') : '';
+            const classCount = (p.classes || []).length;
             const programNames = (p.programs || []).map((pr) => (lang === 'fr' ? pr.nameFr || pr.name : pr.name)).join(', ') || '—';
+            const isExpanded = selected?.id === p.id;
             return (
-              <motion.div
-                key={p.id}
-                className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow cursor-pointer"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                onClick={() => setSelected(p)}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-green-100 dark:bg-green-900/30">
-                    <CalendarDays size={22} style={{ color: 'var(--btc-primary,#16a34a)' }} />
+              <div key={p.id} className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+                <motion.div
+                  className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onClick={() => setSelected(isExpanded ? null : p)}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-green-100 dark:bg-green-900/30 shrink-0">
+                      <CalendarDays size={22} style={{ color: 'var(--btc-primary,#16a34a)' }} />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 dark:text-white">
+                        {lang === 'fr' ? (p.nameFr || p.name) : p.name}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {classCount} {lang === 'fr' ? 'classe(s)' : 'class(es)'}
+                        {(p.programs || []).length > 0 && ` · ${programNames}`} · {start} → {end} ({p.durationUnit})
+                      </p>
+                    </div>
+                    {isExpanded ? <ChevronUp size={20} className="text-gray-400 shrink-0" /> : <ChevronDown size={20} className="text-gray-400 shrink-0" />}
                   </div>
-                  <div>
-                    <p className="font-semibold text-gray-900 dark:text-white">
-                      {lang === 'fr' ? (p.nameFr || p.name) : p.name}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {(p.programs || []).length} {lang === 'fr' ? 'programme(s)' : 'program(s)'}: {programNames} · {start} → {end} ({p.durationUnit})
-                    </p>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className={`text-xs px-2 py-1 rounded-full ${p.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : p.status === 'upcoming' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
+                      {STATUS_OPTIONS.find((s) => s.id === p.status)?.[lang === 'fr' ? 'fr' : 'en'] || p.status}
+                    </span>
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+                      title={lang === 'fr' ? 'Modifier' : 'Edit'}
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => remove(p.id)}
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"
+                      title={lang === 'fr' ? 'Supprimer' : 'Delete'}
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-1 rounded-full ${p.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : p.status === 'upcoming' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
-                    {STATUS_OPTIONS.find((s) => s.id === p.status)?.[lang === 'fr' ? 'fr' : 'en'] || p.status}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openEdit(p);
-                    }}
-                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      remove(p.id);
-                    }}
-                    className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </motion.div>
+                </motion.div>
+
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30"
+                    >
+                      <div className="p-6 pt-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">{lang === 'fr' ? 'Début' : 'Start date'}</p>
+                            <p className="text-sm text-gray-900 dark:text-white">{p.startDate ? new Date(p.startDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US') : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">{lang === 'fr' ? 'Fin' : 'End date'}</p>
+                            <p className="text-sm text-gray-900 dark:text-white">{p.endDate ? new Date(p.endDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US') : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">{lang === 'fr' ? 'Unité de durée' : 'Duration unit'}</p>
+                            <p className="text-sm text-gray-900 dark:text-white">{DURATION_UNITS.find((u) => u.id === p.durationUnit)?.[lang === 'fr' ? 'fr' : 'en'] || p.durationUnit}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">{lang === 'fr' ? 'Statut' : 'Status'}</p>
+                            <p className="text-sm text-gray-900 dark:text-white">{STATUS_OPTIONS.find((s) => s.id === p.status)?.[lang === 'fr' ? 'fr' : 'en'] || p.status}</p>
+                          </div>
+                        </div>
+
+                        {(p.programs || []).length > 0 && (
+                          <div className="mb-6">
+                            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2 flex items-center gap-1.5">
+                              <BookOpen size={14} /> {lang === 'fr' ? 'Programmes (dérivés)' : 'Programs (derived)'}
+                            </h3>
+                            <p className="text-sm text-gray-800 dark:text-gray-200">
+                              {(p.programs || []).map((pr) => (lang === 'fr' ? pr.nameFr || pr.name : pr.name)).join(', ')}
+                            </p>
+                          </div>
+                        )}
+
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2 flex items-center gap-1.5">
+                            <Clock size={14} /> {lang === 'fr' ? 'Classes dans cette promotion' : 'Classes in this promotion'}
+                          </h3>
+                          {(p.classes || []).length === 0 ? (
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Aucune classe associée.' : 'No classes in this promotion.'}</p>
+                          ) : (
+                            <div className="rounded-xl border border-gray-200 dark:border-gray-600 overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
+                                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Code' : 'Code'}</th>
+                                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Nom' : 'Name'}</th>
+                                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Programme' : 'Program'}</th>
+                                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Horaire' : 'Schedule'}</th>
+                                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Salle' : 'Room'}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(p.classes || []).map((cl) => (
+                                    <tr key={cl.id} className="border-b border-gray-100 dark:border-gray-700/50 last:border-0">
+                                      <td className="px-4 py-2.5 text-gray-900 dark:text-white font-mono text-xs">{cl.code || '—'}</td>
+                                      <td className="px-4 py-2.5 text-gray-900 dark:text-white">{cl.name || '—'}</td>
+                                      <td className="px-4 py-2.5 text-gray-600 dark:text-gray-300">{lang === 'fr' ? cl.programNameFr || cl.programName : cl.programName}</td>
+                                      <td className="px-4 py-2.5 text-gray-600 dark:text-gray-300">
+                                        {[cl.startTime, cl.endTime].filter(Boolean).join(' – ') || '—'}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400">{cl.room || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             );
           })
         )}
       </div>
-
-      {selected && (
-        <div className="mt-8 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {lang === 'fr' ? (selected.nameFr || selected.name) : selected.name}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {selected.startDate && selected.endDate
-                  ? `${new Date(selected.startDate).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US')} → ${new Date(
-                      selected.endDate,
-                    ).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US')}`
-                  : '—'}
-                {selected.durationUnit ? ` · ${selected.durationUnit}` : ''}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`text-xs px-2 py-1 rounded-full ${
-                  selected.status === 'active'
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    : selected.status === 'upcoming'
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                }`}
-              >
-                {STATUS_OPTIONS.find((s) => s.id === selected.status)?.[lang === 'fr' ? 'fr' : 'en'] || selected.status}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-xs px-2 py-1 rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
-              >
-                {lang === 'fr' ? 'Fermer' : 'Close'}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-2">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">
-              {lang === 'fr' ? 'Programmes dans cette promotion' : 'Programs in this promotion'}
-            </h3>
-            {(selected.programs || []).length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {lang === 'fr' ? 'Aucun programme associé.' : 'No programs linked to this promotion.'}
-              </p>
-            ) : (
-              <ul className="space-y-1 text-sm text-gray-800 dark:text-gray-200">
-                {selected.programs.map((pr) => (
-                  <li key={pr.id} className="flex items-center justify-between gap-2">
-                    <span>{lang === 'fr' ? pr.nameFr || pr.name : pr.name}</span>
-                    {pr.department && (
-                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{pr.department}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
 
       <AnimatePresence>
         {modal && (
@@ -299,18 +403,37 @@ export function Promotions() {
               {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Programmes associés' : 'Associated programs'}</label>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{lang === 'fr' ? 'Cochez un ou plusieurs programmes pour cette promotion.' : 'Select one or more programs for this promotion.'}</p>
-                  <div className="max-h-40 overflow-y-auto space-y-2 rounded-xl border border-gray-200 dark:border-gray-600 p-3 bg-gray-50 dark:bg-gray-800/50">
-                    {programs.map((prog) => {
-                      const checked = form.programIds.includes(prog.id);
-                      return (
-                        <label key={prog.id} className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={checked} onChange={() => toggleProgram(prog.id)} className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
-                          <span className="text-sm text-gray-800 dark:text-gray-200">{(lang === 'fr' ? prog.departmentNameFr || prog.departmentName : prog.departmentName || prog.department) || ''} — {lang === 'fr' ? prog.nameFr || prog.name : prog.name}</span>
-                        </label>
-                      );
-                    })}
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Classes dans cette promotion' : 'Classes in this promotion'}</label>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{lang === 'fr' ? 'Sélectionnez les créneaux (classes) créés dans les programmes. Une promotion contient plusieurs classes.' : 'Select the classes you created in each program. A promotion has many classes.'}</p>
+                  <div className="max-h-48 overflow-y-auto space-y-3 rounded-xl border border-gray-200 dark:border-gray-600 p-3 bg-gray-50 dark:bg-gray-800/50">
+                    {(() => {
+                      const byProgram = new Map<string, typeof classes>();
+                      for (const cl of classes) {
+                        const list = byProgram.get(cl.programId) || [];
+                        list.push(cl);
+                        byProgram.set(cl.programId, list);
+                      }
+                      return Array.from(byProgram.entries()).map(([programId, list]) => {
+                        const progName = list[0]?.programName;
+                        const progNameFr = list[0]?.programNameFr;
+                        return (
+                          <div key={programId}>
+                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{lang === 'fr' ? progNameFr || progName : progName}</p>
+                            <div className="space-y-1 pl-2">
+                              {list.map((cl) => {
+                                const checked = form.classIds.includes(cl.id);
+                                return (
+                                  <label key={cl.id} className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={checked} onChange={() => toggleClass(cl.id)} className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
+                                    <span className="text-sm text-gray-800 dark:text-gray-200">{cl.code ? `${cl.code} — ` : ''}{cl.name}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
                 <div>

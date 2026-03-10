@@ -195,7 +195,7 @@ export function Enrollments() {
   };
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6 w-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl text-gray-900 dark:text-white font-bold" style={{ fontFamily: 'Poppins' }}>

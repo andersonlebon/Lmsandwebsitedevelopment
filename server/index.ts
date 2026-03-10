@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and, isNull, isNotNull, sql } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, promotionClasses, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -678,27 +678,23 @@ function slugForCode(s: string, maxLen = 8): string {
   return (slug || 'X').slice(0, maxLen);
 }
 
-async function generateUniqueClassCode(programId: string, promotionId: string | null, name: string | null, startTime: string, daysOfWeek: number[], excludeId?: string): Promise<string> {
+async function generateUniqueClassCode(programId: string, name: string | null, startTime: string, daysOfWeek: number[], excludeId?: string): Promise<string> {
   const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!prog) return `CLASS-${programId.slice(0, 8)}`;
   const [dept] = await db.select().from(departments).where(eq(departments.id, prog.departmentId));
   const deptPart = dept?.slug ? slugForCode(dept.slug, 3) : 'DEP';
   const progPart = slugForCode(prog.name ?? '', 3);
-  const promoPart = promotionId
-    ? (await db.select({ name: promotions.name }).from(promotions).where(eq(promotions.id, promotionId)))[0]?.name
-    : null;
-  const promoSlug = promoPart ? slugForCode(promoPart, 2) : 'AL';
   const timePart = (startTime || '').replace(':', '').slice(0, 2) || '00';
   const classPart = (name && name.trim())
     ? slugForCode(name, 4)
     : (daysOfWeek.length ? `D${daysOfWeek[0]}${timePart}` : `T${timePart}`);
-  let code = `${deptPart}-${progPart}-${promoSlug}-${classPart}`;
+  let code = `${deptPart}-${progPart}-${classPart}`;
   let n = 1;
   while (true) {
     const existing = await db.select({ id: programClasses.id }).from(programClasses).where(eq(programClasses.code, code));
     const taken = existing.length > 0 && (excludeId ? existing.some((r) => r.id !== excludeId) : true);
     if (!taken) return code;
-    code = `${deptPart}-${progPart}-${promoSlug}-${classPart}-${n}`;
+    code = `${deptPart}-${progPart}-${classPart}-${n}`;
     n++;
   }
 }
@@ -708,7 +704,6 @@ function classRowToApi(row: any) {
   return {
     id: row.id,
     programId: row.programId,
-    promotionId: row.promotionId ?? undefined,
     code: row.code ?? undefined,
     name: row.name ?? '',
     startTime: row.startTime,
@@ -727,6 +722,13 @@ app.get('/classes', async (c) => {
     const programId = c.req.query('programId');
     const departmentId = c.req.query('departmentId');
     const promotionId = c.req.query('promotionId');
+    if (programId && promotionId) {
+      const classLinks = await db.select({ classId: promotionClasses.classId }).from(promotionClasses).where(eq(promotionClasses.promotionId, promotionId));
+      const promoClassIds = classLinks.map((x) => x.classId);
+      if (promoClassIds.length === 0) return c.json({ classes: [] });
+      const rows = await db.select().from(programClasses).where(and(eq(programClasses.programId, programId), inArray(programClasses.id, promoClassIds))).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
+      return c.json({ classes: rows.map((r) => classRowToApi(r)) });
+    }
     if (programId) {
       const rows = await db.select().from(programClasses).where(eq(programClasses.programId, programId)).orderBy(asc(programClasses.sortOrder), asc(programClasses.startTime));
       return c.json({ classes: rows.map((r) => classRowToApi(r)) });
@@ -736,16 +738,21 @@ app.get('/classes', async (c) => {
     const conditions: Parameters<typeof and> = [];
     if (departmentId) conditions.push(eq(departments.id, departmentId));
     if (promotionId) {
-      const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
-      const progIds = progInPromo.map((p) => p.programId);
-      if (progIds.length === 0) return c.json({ classes: [] });
-      conditions.push(inArray(programs.id, progIds));
+      const classLinks = await db.select({ classId: promotionClasses.classId }).from(promotionClasses).where(eq(promotionClasses.promotionId, promotionId));
+      const promoClassIds = classLinks.map((x) => x.classId);
+      if (promoClassIds.length > 0) {
+        conditions.push(inArray(programClasses.id, promoClassIds));
+      } else {
+        const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
+        const progIds = progInPromo.map((p) => p.programId);
+        if (progIds.length === 0) return c.json({ classes: [] });
+        conditions.push(inArray(programs.id, progIds));
+      }
     }
     const rows = await db
       .select({
         id: programClasses.id,
         programId: programClasses.programId,
-        promotionId: programClasses.promotionId,
         code: programClasses.code,
         name: programClasses.name,
         startTime: programClasses.startTime,
@@ -803,15 +810,13 @@ app.post('/classes', async (c) => {
     if (!programId) return c.json({ error: 'programId required' }, 400);
     const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!prog) return c.json({ error: 'Program not found' }, 404);
-    const promotionId = body.promotionId ?? body.promotion_id ?? null;
     const name = body.name ?? '';
     const startTime = String(body.startTime ?? '');
     const daysOfWeek = Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((d: unknown) => Number(d)).filter((d: number) => d >= 1 && d <= 7) : [];
     const legacyDay = daysOfWeek.length ? daysOfWeek[0] : null;
-    const code = await generateUniqueClassCode(programId, promotionId, name || null, startTime, daysOfWeek);
+    const code = await generateUniqueClassCode(programId, name || null, startTime, daysOfWeek);
     const [inserted] = await db.insert(programClasses).values({
       programId,
-      promotionId: promotionId || undefined,
       code,
       name,
       startTime,
@@ -839,18 +844,16 @@ app.put('/classes/:id', async (c) => {
     if (!existing) return c.json({ error: 'Class not found' }, 404);
     const name = body.name !== undefined ? body.name : existing.name;
     const programId = body.programId ?? body.program_id ?? existing.programId;
-    const promotionId = body.promotionId !== undefined ? (body.promotionId || null) : existing.promotionId;
     const startTime = body.startTime !== undefined ? String(body.startTime) : existing.startTime;
     const daysOfWeek = body.daysOfWeek !== undefined
       ? (Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((d: unknown) => Number(d)).filter((d: number) => d >= 1 && d <= 7) : [])
       : (Array.isArray((existing as any).daysOfWeek) ? (existing as any).daysOfWeek : (existing.dayOfWeek != null ? [existing.dayOfWeek] : []));
     const legacyDay = daysOfWeek.length ? daysOfWeek[0] : null;
-    const codeChanged = name !== existing.name || programId !== existing.programId || promotionId !== existing.promotionId;
-    const code = codeChanged ? await generateUniqueClassCode(programId, promotionId, name || null, startTime, daysOfWeek) : existing.code;
+    const codeChanged = name !== existing.name || programId !== existing.programId;
+    const code = codeChanged ? await generateUniqueClassCode(programId, name || null, startTime, daysOfWeek) : existing.code;
     await db.update(programClasses).set({
       name,
       programId: body.programId !== undefined ? body.programId : existing.programId,
-      promotionId: promotionId ?? undefined,
       code: code ?? undefined,
       startTime,
       endTime: body.endTime !== undefined ? String(body.endTime) : existing.endTime,
@@ -1293,12 +1296,13 @@ app.delete('/staff/:id', async (c) => {
 // ──────────────────────────────────────
 // PROMOTIONS: CRUD + public list (one promotion → many programs)
 // ──────────────────────────────────────
-function promotionRowToApi(row: any, programsList: any[] = []) {
+function promotionRowToApi(row: any, programsList: any[] = [], classesList: any[] = []) {
   return {
     id: row.id,
     name: row.name,
     nameFr: row.nameFr ?? row.name_fr ?? '',
     programs: programsList,
+    classes: classesList,
     startDate: row.startDate ?? row.start_date,
     endDate: row.endDate ?? row.end_date,
     durationUnit: row.durationUnit ?? row.duration_unit ?? 'months',
@@ -1307,9 +1311,90 @@ function promotionRowToApi(row: any, programsList: any[] = []) {
   };
 }
 
-async function getPromotionPrograms(promotionIds: string[]): Promise<Map<string, any[]>> {
+/** Classes in each promotion (from promotion_classes). */
+async function getPromotionClasses(promotionIds: string[]): Promise<Map<string, any[]>> {
   if (promotionIds.length === 0) return new Map();
   const rows = await db
+    .select({
+      promotionId: promotionClasses.promotionId,
+      classId: programClasses.id,
+      className: programClasses.name,
+      code: programClasses.code,
+      programId: programClasses.programId,
+      programName: programs.name,
+      programNameFr: programs.nameFr,
+      departmentSlug: departments.slug,
+      startTime: programClasses.startTime,
+      endTime: programClasses.endTime,
+      daysOfWeek: programClasses.daysOfWeek,
+      dayOfWeek: programClasses.dayOfWeek,
+      room: programClasses.room,
+    })
+    .from(promotionClasses)
+    .innerJoin(programClasses, eq(promotionClasses.classId, programClasses.id))
+    .innerJoin(programs, eq(programClasses.programId, programs.id))
+    .leftJoin(departments, eq(programs.departmentId, departments.id))
+    .where(inArray(promotionClasses.promotionId, promotionIds))
+    .orderBy(asc(promotionClasses.sortOrder));
+  const map = new Map<string, any[]>();
+  for (const r of rows) {
+    const list = map.get(r.promotionId) ?? [];
+    list.push({
+      id: r.classId,
+      name: r.className,
+      code: r.code,
+      programId: r.programId,
+      programName: r.programName,
+      programNameFr: r.programNameFr,
+      department: r.departmentSlug ?? '',
+      startTime: r.startTime,
+      endTime: r.endTime,
+      daysOfWeek: Array.isArray(r.daysOfWeek) ? r.daysOfWeek : (r.dayOfWeek != null ? [r.dayOfWeek] : []),
+      room: r.room,
+    });
+    map.set(r.promotionId, list);
+  }
+  return map;
+}
+
+/** Programs in each promotion: derived from promotion_classes (classes' programIds), or fallback to promotion_programs. */
+async function getPromotionPrograms(promotionIds: string[]): Promise<Map<string, any[]>> {
+  if (promotionIds.length === 0) return new Map();
+  const classesByPromo = await getPromotionClasses(promotionIds);
+  const programIdsByPromo = new Map<string, Set<string>>();
+  for (const [promoId, classes] of classesByPromo) {
+    const progIds = new Set<string>();
+    for (const c of classes) if (c.programId) progIds.add(c.programId);
+    programIdsByPromo.set(promoId, progIds);
+  }
+  const allProgramIds = [...new Set([...programIdsByPromo.values()].flatMap((s) => [...s]))];
+  if (allProgramIds.length > 0) {
+    const progRows = await db
+      .select({
+        id: programs.id,
+        name: programs.name,
+        nameFr: programs.nameFr,
+        slug: departments.slug,
+      })
+      .from(programs)
+      .leftJoin(departments, eq(programs.departmentId, departments.id))
+      .where(inArray(programs.id, allProgramIds));
+    const feesMap = await resolveProgramFees(allProgramIds);
+    const map = new Map<string, any[]>();
+    for (const promoId of promotionIds) {
+      const progIds = programIdsByPromo.get(promoId);
+      if (progIds && progIds.size > 0) {
+        const list = [...progIds].map((programId) => {
+          const p = progRows.find((r) => r.id === programId);
+          const fees = feesMap.get(programId) ?? [];
+          return { id: programId, name: p?.name ?? '', nameFr: p?.nameFr ?? '', department: p?.slug ?? '', fees };
+        });
+        map.set(promoId, list);
+      }
+    }
+    if (map.size > 0) return map;
+  }
+  const legacyRows = await db
     .select({
       promotionId: promotionPrograms.promotionId,
       programId: programs.id,
@@ -1322,10 +1407,10 @@ async function getPromotionPrograms(promotionIds: string[]): Promise<Map<string,
     .leftJoin(departments, eq(programs.departmentId, departments.id))
     .where(inArray(promotionPrograms.promotionId, promotionIds))
     .orderBy(asc(promotionPrograms.sortOrder), asc(programs.name));
-  const programIds = [...new Set(rows.map((r) => r.programId))];
-  const feesMap = await resolveProgramFees(programIds);
+  const legacyProgramIds = [...new Set(legacyRows.map((r) => r.programId))];
+  const feesMap = await resolveProgramFees(legacyProgramIds);
   const map = new Map<string, any[]>();
-  for (const r of rows) {
+  for (const r of legacyRows) {
     const fees = feesMap.get(r.programId) ?? [];
     const list = map.get(r.promotionId) ?? [];
     list.push({ id: r.programId, name: r.name, nameFr: r.nameFr, department: r.slug ?? '', fees });
@@ -1352,9 +1437,9 @@ app.get('/promotions', async (c) => {
       .from(promotions)
       .orderBy(asc(promotions.startDate), asc(promotions.name));
     const promotionIds = rows.map((r) => r.id);
-    const programsByPromo = await getPromotionPrograms(promotionIds);
+    const [programsByPromo, classesByPromo] = await Promise.all([getPromotionPrograms(promotionIds), getPromotionClasses(promotionIds)]);
     let list = rows.map((r) => ({
-      ...promotionRowToApi(r, programsByPromo.get(r.id) ?? []),
+      ...promotionRowToApi(r, programsByPromo.get(r.id) ?? [], classesByPromo.get(r.id) ?? []),
     }));
     if (statusFilter) list = list.filter((p: any) => p.status === statusFilter);
     return c.json({ promotions: list });
@@ -1382,8 +1467,8 @@ app.get('/promotions/:id', async (c) => {
       .from(promotions)
       .where(eq(promotions.id, id));
     if (!row) return c.json({ error: 'Promotion not found' }, 404);
-    const programsList = (await getPromotionPrograms([id])).get(id) ?? [];
-    return c.json({ promotion: promotionRowToApi(row, programsList) });
+    const [programsList, classesList] = await Promise.all([getPromotionPrograms([id]), getPromotionClasses([id])]);
+    return c.json({ promotion: promotionRowToApi(row, programsList.get(id) ?? [], classesList.get(id) ?? []) });
   } catch (e) {
     console.error('Get promotion error:', e);
     return c.json({ error: `Failed to get promotion: ${(e as Error).message}` }, 500);
@@ -1398,7 +1483,7 @@ app.post('/promotions', async (c) => {
     if (!body.name || !body.startDate || !body.endDate) {
       return c.json({ error: 'name, startDate, endDate required' }, 400);
     }
-    const programIds = Array.isArray(body.programIds) ? body.programIds : (body.programId ? [body.programId] : []);
+    const classIds = Array.isArray(body.classIds) ? body.classIds : [];
     const [inserted] = await db.insert(promotions).values({
       name: body.name,
       nameFr: body.nameFr ?? body.name_fr ?? '',
@@ -1409,15 +1494,15 @@ app.post('/promotions', async (c) => {
       maxStudents: body.maxStudents ?? 30,
     }).returning();
     if (!inserted) return c.json({ error: 'Insert failed' }, 500);
-    for (let i = 0; i < programIds.length; i++) {
-      await db.insert(promotionPrograms).values({
+    for (let i = 0; i < classIds.length; i++) {
+      await db.insert(promotionClasses).values({
         promotionId: inserted.id,
-        programId: programIds[i],
+        classId: classIds[i],
         sortOrder: i,
       });
     }
-    const programsList = (await getPromotionPrograms([inserted.id])).get(inserted.id) ?? [];
-    return c.json({ promotion: promotionRowToApi(inserted, programsList) });
+    const [programsList, classesList] = await Promise.all([getPromotionPrograms([inserted.id]), getPromotionClasses([inserted.id])]);
+    return c.json({ promotion: promotionRowToApi(inserted, programsList.get(inserted.id) ?? [], classesList.get(inserted.id) ?? []) });
   } catch (e) {
     console.error('Create promotion error:', e);
     return c.json({ error: `Failed to create promotion: ${(e as Error).message}` }, 500);
@@ -1442,18 +1527,18 @@ app.put('/promotions/:id', async (c) => {
       updatedAt: new Date(),
     }).where(eq(promotions.id, id)).returning();
     if (!updated) return c.json({ error: 'Promotion not found' }, 404);
-    if (Array.isArray(body.programIds)) {
-      await db.delete(promotionPrograms).where(eq(promotionPrograms.promotionId, id));
-      for (let i = 0; i < body.programIds.length; i++) {
-        await db.insert(promotionPrograms).values({
+    if (Array.isArray(body.classIds)) {
+      await db.delete(promotionClasses).where(eq(promotionClasses.promotionId, id));
+      for (let i = 0; i < body.classIds.length; i++) {
+        await db.insert(promotionClasses).values({
           promotionId: id,
-          programId: body.programIds[i],
+          classId: body.classIds[i],
           sortOrder: i,
         });
       }
     }
-    const programsList = (await getPromotionPrograms([id])).get(id) ?? [];
-    return c.json({ promotion: promotionRowToApi(updated, programsList) });
+    const [programsList, classesList] = await Promise.all([getPromotionPrograms([id]), getPromotionClasses([id])]);
+    return c.json({ promotion: promotionRowToApi(updated, programsList.get(id) ?? [], classesList.get(id) ?? []) });
   } catch (e) {
     console.error('Update promotion error:', e);
     return c.json({ error: `Failed to update promotion: ${(e as Error).message}` }, 500);
@@ -1465,6 +1550,7 @@ app.delete('/promotions/:id', async (c) => {
     const admin = await requireAdmin(c);
     if (admin instanceof Response) return admin;
     const id = c.req.param('id');
+    await db.delete(promotionClasses).where(eq(promotionClasses.promotionId, id));
     await db.delete(promotionPrograms).where(eq(promotionPrograms.promotionId, id));
     await db.delete(promotions).where(eq(promotions.id, id));
     return c.json({ success: true });
@@ -1510,12 +1596,15 @@ app.post('/enrollments', async (c) => {
       .where(eq(promotions.id, promotionId));
     if (!promo) return c.json({ error: 'Promotion not found' }, 404);
     if (promo.status !== 'active' && promo.status !== 'upcoming') return c.json({ error: 'Promotion is not open for enrollment' }, 400);
-    const [link] = await db.select().from(promotionPrograms).where(and(eq(promotionPrograms.promotionId, promotionId), eq(promotionPrograms.programId, programId)));
-    if (!link) return c.json({ error: 'Program is not part of this promotion' }, 400);
+    const programInPromo = await db.select({ classId: promotionClasses.classId }).from(promotionClasses).innerJoin(programClasses, eq(promotionClasses.classId, programClasses.id)).where(and(eq(promotionClasses.promotionId, promotionId), eq(programClasses.programId, programId))).limit(1);
+    const programInPromoLegacy = programInPromo.length === 0 ? await db.select().from(promotionPrograms).where(and(eq(promotionPrograms.promotionId, promotionId), eq(promotionPrograms.programId, programId))).limit(1) : [];
+    if (programInPromo.length === 0 && programInPromoLegacy.length === 0) return c.json({ error: 'Program is not part of this promotion' }, 400);
     const classId = body.classId ?? body.class_id ?? null;
     if (classId) {
       const [cls] = await db.select().from(programClasses).where(and(eq(programClasses.id, classId), eq(programClasses.programId, programId)));
       if (!cls) return c.json({ error: 'Class not found or does not belong to this program' }, 400);
+      const classInPromo = await db.select().from(promotionClasses).where(and(eq(promotionClasses.promotionId, promotionId), eq(promotionClasses.classId, classId))).limit(1);
+      if (classInPromo.length === 0) return c.json({ error: 'Class is not part of this promotion' }, 400);
     }
     const existing = await db.select().from(enrollments).where(and(eq(enrollments.studentId, auth.userId), eq(enrollments.promotionId, promotionId), eq(enrollments.programId, programId))).limit(1);
     if (existing.length > 0) return c.json({ error: 'Already enrolled in this promotion for this program' }, 400);
@@ -2755,18 +2844,21 @@ app.get('/staff-schedules/week', async (c) => {
     if (departmentId) conditions.push(eq(programs.departmentId, departmentId));
     if (programId) conditions.push(eq(programClasses.programId, programId));
     if (promotionId) {
-      const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
-      const progIds = progInPromo.map((p) => p.programId);
-      if (progIds.length === 0) {
-        return c.json({ weekStart, slots: [] });
+      const classLinks = await db.select({ classId: promotionClasses.classId }).from(promotionClasses).where(eq(promotionClasses.promotionId, promotionId));
+      const promoClassIds = classLinks.map((x) => x.classId);
+      if (promoClassIds.length > 0) {
+        conditions.push(inArray(programClasses.id, promoClassIds));
+      } else {
+        const progInPromo = await db.select({ programId: promotionPrograms.programId }).from(promotionPrograms).where(eq(promotionPrograms.promotionId, promotionId));
+        const progIds = progInPromo.map((p) => p.programId);
+        if (progIds.length === 0) return c.json({ weekStart, slots: [] });
+        conditions.push(inArray(programClasses.programId, progIds));
       }
-      conditions.push(inArray(programClasses.programId, progIds));
     }
     const classesRows = await db
       .select({
         id: programClasses.id,
         code: programClasses.code,
-        promotionId: programClasses.promotionId,
         name: programClasses.name,
         programId: programClasses.programId,
         programName: programs.name,
