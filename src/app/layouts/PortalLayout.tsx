@@ -24,9 +24,10 @@ export function PortalLayout() {
   const navItems = [
     { href: '/portal', label: t('common.myDashboard'), icon: LayoutDashboard, exact: true },
     { href: '/portal/courses', label: t('common.myCourses'), icon: BookOpen },
+    { href: '/portal/connect/calendar', label: t('common.calendar'), icon: Calendar, prefix: '/portal/connect/calendar' },
     { href: '/portal/records/student-id', label: t('common.myRecords'), icon: IdCard, prefix: '/portal/records' },
     { href: '/portal/payments', label: t('common.myPayments'), icon: CreditCard },
-    { href: '/portal/connect/jobs', label: t('common.connect'), icon: MessageSquare, prefix: '/portal/connect' },
+    { href: '/portal/connect/jobs', label: t('common.connect'), icon: MessageSquare, prefix: '/portal/connect', excludePrefix: '/portal/connect/calendar' },
   ];
 
   // Auth is now handled by ProtectedRoute — no manual redirect needed.
@@ -35,7 +36,8 @@ export function PortalLayout() {
     setMobileSidebarOpen(false);
   }, [location]);
 
-  const isActive = (item: { href: string; exact?: boolean; prefix?: string }) => {
+  const isActive = (item: { href: string; exact?: boolean; prefix?: string; excludePrefix?: string }) => {
+    if (item.excludePrefix && (location.pathname === item.excludePrefix || location.pathname.startsWith(item.excludePrefix + '/'))) return false;
     if (item.exact) return location.pathname === item.href;
     if (item.prefix) return location.pathname === item.prefix || location.pathname.startsWith(item.prefix + '/');
     return location.pathname === item.href;

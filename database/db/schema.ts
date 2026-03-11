@@ -313,6 +313,7 @@ export const studentAttendanceRequests = pgTable('student_attendance_requests', 
   reviewedAt: timestamptz('reviewed_at'),
   rejectReason: text('reject_reason'),
   requestDate: date('request_date').notNull(), // calendar date of the class
+  comment: text('comment').default(''), // optional comment from student for that day
   createdAt: timestamptz('created_at').defaultNow(),
 });
 
@@ -344,6 +345,7 @@ export const lecturerAttendance = pgTable('lecturer_attendance', {
   approvedBy: uuid('approved_by'),
   approvedAt: timestamptz('approved_at'),
   rejectReason: text('reject_reason'),
+  presentStudentIds: jsonb('present_student_ids').default([]), // student IDs who participated (for admin review)
   createdAt: timestamptz('created_at').defaultNow(),
 });
 

@@ -49,9 +49,11 @@ export function StaffSchedules() {
   const [departmentId, setDepartmentId] = useState('');
   const [programId, setProgramId] = useState('');
   const [promotionId, setPromotionId] = useState('');
+  const [classId, setClassId] = useState('');
   const [departments, setDepartments] = useState<{ id: string; name: string; nameFr?: string }[]>([]);
   const [programs, setPrograms] = useState<{ id: string; name: string; nameFr?: string; departmentId?: string }[]>([]);
   const [promotions, setPromotions] = useState<{ id: string; name: string; nameFr?: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: string; name: string; code?: string; programId: string; programName?: string; programNameFr?: string }[]>([]);
   const [slots, setSlots] = useState<WeekSlot[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [lessons, setLessons] = useState<{ id: string; title: string; titleFr?: string | null }[]>([]);
@@ -66,14 +68,15 @@ export function StaffSchedules() {
       apiFetch('/departments', { requireAuth: true }).then((d: any) => setDepartments(d.departments || [])).catch(() => {}),
       apiFetch('/programs', { requireAuth: true }).then((d: any) => setPrograms(d.programs || [])).catch(() => {}),
       apiFetch('/promotions', { requireAuth: true }).then((d: any) => setPromotions(d.promotions || [])).catch(() => {}),
+      apiFetch('/classes', { requireAuth: true }).then((d: any) => setClasses(d.classes || [])).catch(() => {}),
     ]);
   }, []);
 
   useEffect(() => {
     loadWeek();
-  }, [weekStart, departmentId, programId, promotionId]);
+  }, [weekStart, departmentId, programId, promotionId, classId]);
 
-  const hasFilter = !!(departmentId || programId || promotionId);
+  const hasFilter = !!(departmentId || programId || promotionId || classId);
 
   const loadWeek = async () => {
     setLoading(true);
@@ -82,6 +85,7 @@ export function StaffSchedules() {
       if (departmentId) params.set('departmentId', departmentId);
       if (programId) params.set('programId', programId);
       if (promotionId) params.set('promotionId', promotionId);
+      if (classId) params.set('classId', classId);
       const [weekRes, staffRes, lessonsRes] = await Promise.all([
         apiFetch(`/staff-schedules/week?${params.toString()}`, { requireAuth: true }),
         apiFetch('/staff', { requireAuth: true }),
@@ -226,7 +230,7 @@ export function StaffSchedules() {
         <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{lang === 'fr' ? 'Filtrer le calendrier :' : 'Filter calendar:'}</span>
         <select
           value={departmentId}
-          onChange={e => { setDepartmentId(e.target.value); setProgramId(''); setPromotionId(''); }}
+          onChange={e => { setDepartmentId(e.target.value); setProgramId(''); setPromotionId(''); setClassId(''); }}
           className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[160px]"
         >
           <option value="">{lang === 'fr' ? 'Tous les départements' : 'All departments'}</option>
@@ -236,7 +240,7 @@ export function StaffSchedules() {
         </select>
         <select
           value={programId}
-          onChange={e => setProgramId(e.target.value)}
+          onChange={e => { setProgramId(e.target.value); setClassId(''); }}
           className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[180px]"
         >
           <option value="">{lang === 'fr' ? 'Tous les programmes' : 'All programs'}</option>
@@ -248,7 +252,7 @@ export function StaffSchedules() {
         </select>
         <select
           value={promotionId}
-          onChange={e => setPromotionId(e.target.value)}
+          onChange={e => { setPromotionId(e.target.value); setClassId(''); }}
           className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[160px]"
         >
           <option value="">{lang === 'fr' ? 'Toutes les promotions' : 'All promotions'}</option>
@@ -256,17 +260,31 @@ export function StaffSchedules() {
             <option key={p.id} value={p.id}>{lang === 'fr' && p.nameFr ? p.nameFr : p.name}</option>
           ))}
         </select>
-        {(departmentId || programId || promotionId) && (
+        <select
+          value={classId}
+          onChange={e => setClassId(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm min-w-[200px]"
+        >
+          <option value="">{lang === 'fr' ? 'Toutes les classes' : 'All classes'}</option>
+          {classes
+            .filter(cl => !programId || cl.programId === programId)
+            .map(cl => (
+              <option key={cl.id} value={cl.id}>
+                {cl.code ? `${cl.code} — ` : ''}{lang === 'fr' && cl.programNameFr ? cl.programNameFr : cl.programName} · {cl.name || '—'}
+              </option>
+            ))}
+        </select>
+        {(departmentId || programId || promotionId || classId) && (
           <button
             type="button"
-            onClick={() => { setDepartmentId(''); setProgramId(''); setPromotionId(''); }}
+            onClick={() => { setDepartmentId(''); setProgramId(''); setPromotionId(''); setClassId(''); }}
             className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
           >
             {lang === 'fr' ? 'Réinitialiser' : 'Clear filters'}
           </button>
         )}
         <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
-          {lang === 'fr' ? 'Filtrez par promotion ou programme pour éviter le chevauchement des créneaux.' : 'Filter by promotion or program to avoid overlapping slots.'}
+          {lang === 'fr' ? 'Filtrez par promotion, programme ou classe.' : 'Filter by promotion, program or class.'}
         </span>
       </div>
 

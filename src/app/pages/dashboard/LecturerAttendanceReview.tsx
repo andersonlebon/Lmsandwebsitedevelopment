@@ -88,19 +88,27 @@ export function LecturerAttendanceReview() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Enseignant' : 'Lecturer'}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Classe' : 'Class'}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Date' : 'Date'}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Participants' : 'Participants'}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Statut' : 'Status'}</th>
                 {statusFilter === 'pending' && <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase">{lang === 'fr' ? 'Actions' : 'Actions'}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {attendances.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">{lang === 'fr' ? 'Aucune entrée' : 'No entries'}</td></tr>
+                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">{lang === 'fr' ? 'Aucune entrée' : 'No entries'}</td></tr>
               ) : (
                 attendances.map((a) => (
                   <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{staffMap[a.staffId] || a.staffId?.slice(0, 8)}</td>
                     <td className="px-6 py-3 text-gray-600 dark:text-gray-400">{classMap[a.classId] || a.classId?.slice(0, 8)}</td>
                     <td className="px-6 py-3 text-gray-600 dark:text-gray-400">{a.attendanceDate}</td>
+                    <td className="px-6 py-3 text-gray-600 dark:text-gray-400 max-w-[200px]">
+                      {Array.isArray(a.presentStudentNames) && a.presentStudentNames.length > 0 ? (
+                        <span className="text-xs">{a.presentStudentNames.filter(Boolean).join(', ') || '—'}</span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-3">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                         a.status === 'approved' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
