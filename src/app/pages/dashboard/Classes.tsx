@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Clock, BookOpen, Building2, CalendarDays, Loader2, Filter, Plus, X } from 'lucide-react';
+import { Clock, BookOpen, Building2, CalendarDays, Loader2, Filter, Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
 import { ExportReportButton } from '../../components/ExportReportButton';
@@ -57,6 +57,18 @@ export function Classes() {
   });
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  const [editingClass, setEditingClass] = useState<ClassRow | null>(null);
+  const [editForm, setEditForm] = useState({
+    id: '',
+    programId: '',
+    name: '',
+    startTime: '08:00',
+    endTime: '10:00',
+    room: '',
+    daysOfWeek: [] as number[],
+  });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -156,6 +168,75 @@ export function Classes() {
     }
   };
 
+  const openEditModal = (c: ClassRow) => {
+    const days = c.daysOfWeek ?? (c.dayOfWeek != null ? [c.dayOfWeek] : []);
+    setEditingClass(c);
+    setEditForm({
+      id: c.id,
+      programId: c.programId,
+      name: c.name || '',
+      startTime: c.startTime || '08:00',
+      endTime: c.endTime || '10:00',
+      room: c.room || '',
+      daysOfWeek: [...days].sort((a, b) => a - b),
+    });
+    setEditError('');
+  };
+
+  const toggleEditDay = (day: number) => {
+    setEditForm((f) => ({
+      ...f,
+      daysOfWeek: f.daysOfWeek.includes(day) ? f.daysOfWeek.filter((d) => d !== day) : [...f.daysOfWeek, day].sort((a, b) => a - b),
+    }));
+  };
+
+  const saveEditClass = async () => {
+    if (!editForm.id) return;
+    if (editForm.daysOfWeek.length === 0) {
+      setEditError(lang === 'fr' ? 'Sélectionnez au moins un jour.' : 'Select at least one day.');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await apiFetch(`/classes/${editForm.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          programId: editForm.programId,
+          name: editForm.name || undefined,
+          startTime: editForm.startTime,
+          endTime: editForm.endTime,
+          room: editForm.room || undefined,
+          daysOfWeek: editForm.daysOfWeek,
+        }),
+        requireAuth: true,
+      });
+      setEditingClass(null);
+      const params = new URLSearchParams();
+      if (deptFilter) params.set('departmentId', deptFilter);
+      if (programFilter) params.set('programId', programFilter);
+      if (promoFilter) params.set('promotionId', promoFilter);
+      const url = params.toString() ? `/classes?${params}` : '/classes';
+      const data = await apiFetch(url, { requireAuth: true });
+      setClasses(data.classes || []);
+    } catch (e: any) {
+      setEditError(e.message || (lang === 'fr' ? 'Échec de l\'enregistrement' : 'Failed to save'));
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteClass = async (classId: string) => {
+    if (!confirm(lang === 'fr' ? 'Supprimer cette classe ?' : 'Delete this class?')) return;
+    try {
+      await apiFetch(`/classes/${classId}`, { method: 'DELETE', requireAuth: true });
+      setClasses((prev) => prev.filter((c) => c.id !== classId));
+      if (editingClass?.id === classId) setEditingClass(null);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -247,6 +328,7 @@ export function Classes() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Jour' : 'Day'}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Heure' : 'Time'}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{lang === 'fr' ? 'Salle' : 'Room'}</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase w-24">{lang === 'fr' ? 'Actions' : 'Actions'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -263,6 +345,26 @@ export function Classes() {
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{daysLabel(c.daysOfWeek ?? (c.dayOfWeek != null ? [c.dayOfWeek] : []))}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.startTime} – {c.endTime}</td>
                     <td className="px-4 py-3 text-gray-500">{c.room || '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(c)}
+                          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+                          title={lang === 'fr' ? 'Modifier' : 'Edit'}
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteClass(c.id)}
+                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"
+                          title={lang === 'fr' ? 'Supprimer' : 'Delete'}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -371,6 +473,106 @@ export function Classes() {
               <button onClick={saveNewClass} disabled={addSaving} className="px-4 py-2 rounded-xl text-white text-sm font-medium flex items-center gap-2" style={{ background: 'var(--btc-primary,#16a34a)' }}>
                 {addSaving && <Loader2 size={16} className="animate-spin" />}
                 {lang === 'fr' ? 'Créer la classe' : 'Create class'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {editingClass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setEditingClass(null)}>
+          <motion.div
+            initial={{ scale: 0.95 }}
+            animate={{ scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {lang === 'fr' ? 'Modifier la classe' : 'Edit class'}
+              </h3>
+              <button onClick={() => setEditingClass(null)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500">
+                <X size={18} />
+              </button>
+            </div>
+            {editError && <p className="text-sm text-red-500 mb-3">{editError}</p>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Programme' : 'Program'} *</label>
+                <select
+                  value={editForm.programId}
+                  onChange={(e) => setEditForm((f) => ({ ...f, programId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                >
+                  {programs.map((p) => (
+                    <option key={p.id} value={p.id}>{lang === 'fr' ? (p.nameFr || p.name) : p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Nom du créneau' : 'Slot name'}</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder={lang === 'fr' ? 'Ex: Cours du matin' : 'e.g. Morning class'}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Heure début' : 'Start time'}</label>
+                  <input
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Heure fin' : 'End time'}</label>
+                  <input
+                    type="time"
+                    value={editForm.endTime}
+                    onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{lang === 'fr' ? 'Salle' : 'Room'}</label>
+                <input
+                  type="text"
+                  value={editForm.room}
+                  onChange={(e) => setEditForm((f) => ({ ...f, room: e.target.value }))}
+                  placeholder="e.g. Room A"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{lang === 'fr' ? 'Jours de la semaine' : 'Days of the week'} *</label>
+                <div className="flex flex-wrap gap-2">
+                  {DAY_OPTIONS.map((day) => (
+                    <label key={day} className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editForm.daysOfWeek.includes(day)}
+                        onChange={() => toggleEditDay(day)}
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                      <span className="text-sm text-gray-800 dark:text-gray-200">{DAY_NAMES[day][lang === 'fr' ? 'fr' : 'en']}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button onClick={() => setEditingClass(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
+                {lang === 'fr' ? 'Annuler' : 'Cancel'}
+              </button>
+              <button onClick={saveEditClass} disabled={editSaving} className="px-4 py-2 rounded-xl text-white text-sm font-medium flex items-center gap-2" style={{ background: 'var(--btc-primary,#16a34a)' }}>
+                {editSaving && <Loader2 size={16} className="animate-spin" />}
+                {lang === 'fr' ? 'Enregistrer' : 'Save'}
               </button>
             </div>
           </motion.div>

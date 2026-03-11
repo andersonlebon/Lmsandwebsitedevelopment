@@ -104,10 +104,28 @@ export function Programs() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [programClasses, setProgramClasses] = useState<{ id: string; programId: string; name: string; startTime: string; endTime: string; dayOfWeek?: number | null; room?: string }[]>([]);
+  const [programClasses, setProgramClasses] = useState<{ id: string; programId: string; name: string; startTime: string; endTime: string; dayOfWeek?: number | null; daysOfWeek?: number[]; room?: string }[]>([]);
   const [classModal, setClassModal] = useState(false);
-  const [classForm, setClassForm] = useState({ startTime: '08:00', endTime: '10:00', name: '', room: '' });
+  const [classForm, setClassForm] = useState({ startTime: '08:00', endTime: '10:00', name: '', room: '', daysOfWeek: [] as number[] });
   const [savingClass, setSavingClass] = useState(false);
+
+  const DAY_NAMES: Record<number, { en: string; fr: string }> = {
+    1: { en: 'Monday', fr: 'Lundi' },
+    2: { en: 'Tuesday', fr: 'Mardi' },
+    3: { en: 'Wednesday', fr: 'Mercredi' },
+    4: { en: 'Thursday', fr: 'Jeudi' },
+    5: { en: 'Friday', fr: 'Vendredi' },
+    6: { en: 'Saturday', fr: 'Samedi' },
+    7: { en: 'Sunday', fr: 'Dimanche' },
+  };
+  const DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+
+  const toggleClassDay = (day: number) => {
+    setClassForm(f => ({
+      ...f,
+      daysOfWeek: f.daysOfWeek.includes(day) ? f.daysOfWeek.filter(d => d !== day) : [...f.daysOfWeek, day].sort((a, b) => a - b),
+    }));
+  };
 
   useEffect(() => {
     loadPrograms();
@@ -146,6 +164,10 @@ export function Programs() {
 
   const saveClass = async () => {
     if (!expandedId || !classForm.startTime || !classForm.endTime) return;
+    if (classForm.daysOfWeek.length === 0) {
+      setError(lang === 'fr' ? 'Sélectionnez au moins un jour.' : 'Select at least one day.');
+      return;
+    }
     setSavingClass(true);
     setError('');
     try {
@@ -156,7 +178,7 @@ export function Programs() {
       });
       const data = await apiFetch(`/programs/${expandedId}/classes`);
       setProgramClasses(data.classes || []);
-      setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '' });
+      setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '', daysOfWeek: [] });
       setClassModal(false);
     } catch (e: any) {
       setError(e.message || (lang === 'fr' ? 'Erreur' : 'Error'));
@@ -340,6 +362,46 @@ export function Programs() {
       setSavingToStructures(false);
     }
   };
+
+  const saveOneFeeToStructure = async (feeId: string) => {
+    const fee = form.fees.find(f => f.id === feeId);
+    if (!fee || fee.feeStructureId) return;
+    if (!fee.name?.trim()) {
+      setError(lang === 'fr' ? 'Saisissez un nom pour le frais.' : 'Enter a name for the fee.');
+      return;
+    }
+    setSavingToStructures(true);
+    setError('');
+    try {
+      const res = await apiFetch('/fee-structures', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: fee.name,
+          nameFr: fee.nameFr,
+          amount: fee.amount,
+          currency: fee.currency,
+          type: fee.type,
+          required: fee.required,
+        }),
+        requireAuth: true,
+      });
+      setFeeStructures(prev => [...prev, res.feeStructure]);
+      setForm(f => ({
+        ...f,
+        fees: f.fees.map(feeItem =>
+          feeItem.id === feeId
+            ? { ...feeItem, feeStructureId: res.feeStructure.id, name: res.feeStructure.name, nameFr: res.feeStructure.nameFr || '', amount: res.feeStructure.amount }
+            : feeItem
+        ),
+      }));
+      setSuccessMsg(lang === 'fr' ? 'Frais enregistré dans les structures.' : 'Fee saved to structures.');
+    } catch (e: any) {
+      setError(e.message || 'Failed');
+    } finally {
+      setSavingToStructures(false);
+    }
+  };
+
   const customFeesCount = form.fees.filter(f => !f.feeStructureId).length;
 
   const filtered = programs.filter(p => {
@@ -574,7 +636,7 @@ export function Programs() {
                             <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                               <Clock size={12} /> {lang === 'fr' ? 'Créneaux' : 'Class times'}
                             </span>
-                            <button type="button" onClick={e => { e.stopPropagation(); setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '' }); setClassModal(true); }}
+                            <button type="button" onClick={e => { e.stopPropagation(); setClassForm({ startTime: '08:00', endTime: '10:00', name: '', room: '', daysOfWeek: [] }); setClassModal(true); }}
                               className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1">
                               <Plus size={12} /> {lang === 'fr' ? 'Ajouter' : 'Add'}
                             </button>
@@ -641,6 +703,18 @@ export function Programs() {
                     className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Jours de la semaine' : 'Days of the week'} *</label>
+                  <div className="flex flex-wrap gap-2">
+                    {DAY_OPTIONS.map(day => (
+                      <label key={day} className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={classForm.daysOfWeek.includes(day)} onChange={() => toggleClassDay(day)}
+                          className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
+                        <span className="text-xs text-gray-800 dark:text-gray-200">{DAY_NAMES[day][lang === 'fr' ? 'fr' : 'en']}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{lang === 'fr' ? 'Nom (optionnel)' : 'Name (optional)'}</label>
                   <input type="text" value={classForm.name} onChange={e => setClassForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="e.g. Morning class" className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
@@ -654,7 +728,7 @@ export function Programs() {
               {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
               <div className="flex gap-2 mt-4">
                 <button type="button" onClick={() => setClassModal(false)} className="flex-1 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Annuler' : 'Cancel'}</button>
-                <button type="button" onClick={saveClass} disabled={savingClass || !classForm.startTime || !classForm.endTime}
+                <button type="button" onClick={saveClass} disabled={savingClass || !classForm.startTime || !classForm.endTime || classForm.daysOfWeek.length === 0}
                   className="flex-1 px-3 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-1">
                   {savingClass ? <Loader2 size={14} className="animate-spin" /> : null}{lang === 'fr' ? 'Ajouter' : 'Add'}
                 </button>
@@ -859,6 +933,17 @@ export function Programs() {
                                     <option value="no">{lang === 'fr' ? 'Non' : 'No'}</option>
                                   </select>
                                 </div>
+                              </div>
+                              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => saveOneFeeToStructure(fee.id)}
+                                  disabled={savingToStructures || !fee.name?.trim()}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-green-600 text-green-600 dark:text-green-400 dark:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
+                                >
+                                  {savingToStructures ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
+                                  {lang === 'fr' ? 'Enregistrer en structure' : 'Save to structure'}
+                                </button>
                               </div>
                             </>
                           )}
