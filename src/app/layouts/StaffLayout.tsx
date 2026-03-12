@@ -22,10 +22,8 @@ export function StaffLayout() {
   const navItems = [
     { href: '/staff', label: t('common.overview'), icon: LayoutDashboard, exact: true },
     { href: '/staff/classes', label: t('staff.myClasses'), icon: BookOpen },
-    { href: '/staff/attendance', label: t('staff.attendance'), icon: ClipboardCheck },
-    { href: '/staff/attendance-requests', label: t('common.attendanceRequests'), icon: Inbox },
+    { href: '/staff/attendance', label: t('staff.scheduleAndAttendance'), icon: Calendar },
     { href: '/staff/materials', label: t('staff.materials'), icon: FileUp },
-    { href: '/staff/schedule', label: t('staff.schedule'), icon: Calendar },
     { href: '/staff/wallet', label: t('common.wallet'), icon: Wallet },
   ];
 

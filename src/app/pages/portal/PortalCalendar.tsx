@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Calendar, Clock, MapPin, ChevronLeft, ChevronRight, BookOpen, Send, Loader2, QrCode, X } from 'lucide-react';
+import { Calendar, Clock, MapPin, ChevronLeft, ChevronRight, BookOpen, Send, Loader2, QrCode, X, CheckCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../../../context/AuthContext';
 import { apiFetch } from '../../lib/api';
@@ -108,7 +108,7 @@ export function PortalCalendar() {
   const [submitAttendanceLoading, setSubmitAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState('');
   const [attendanceSuccess, setAttendanceSuccess] = useState(false);
-  const [qrModal, setQrModal] = useState<{ requestId: string; studentId: string } | null>(null);
+  const [qrModal, setQrModal] = useState<{ requestId: string; studentId: string; status: string } | null>(null);
   const [selectedWeekSlot, setSelectedWeekSlot] = useState<{ slot: WeekSlot; dateStr: string } | null>(null);
 
   const viewYear = viewDate.getFullYear();
@@ -159,10 +159,16 @@ export function PortalCalendar() {
   }, [selectedDate]);
 
   useEffect(() => {
-    apiFetch(`/portal/attendance-requests/me?date=${selectedDate}`, { requireAuth: true })
-      .then((d: any) => setMyRequests(d.requests || []))
-      .catch(() => setMyRequests([]));
-  }, [selectedDate]);
+    if (viewMode === 'week') {
+      apiFetch(`/portal/attendance-requests/me?weekStart=${weekStart}`, { requireAuth: true })
+        .then((d: any) => setMyRequests(d.requests || []))
+        .catch(() => setMyRequests([]));
+    } else {
+      apiFetch(`/portal/attendance-requests/me?date=${selectedDate}`, { requireAuth: true })
+        .then((d: any) => setMyRequests(d.requests || []))
+        .catch(() => setMyRequests([]));
+    }
+  }, [viewMode, weekStart, selectedDate]);
 
   useEffect(() => {
     if (viewMode !== 'week') return;
@@ -195,7 +201,7 @@ export function PortalCalendar() {
       r => r.classId === selectedWeekSlot.slot.classId && r.requestDate === selectedWeekSlot.dateStr
     );
     if (existing) {
-      setQrModal({ requestId: existing.id, studentId: user.id });
+      setQrModal({ requestId: existing.id, studentId: user.id, status: existing.status || 'pending' });
       setSelectedWeekSlot(null);
     }
   }, [selectedWeekSlot, selectedDate, myRequests, user?.id]);
@@ -226,7 +232,7 @@ export function PortalCalendar() {
       setAttendanceSuccess(true);
       setAttendanceForm(prev => ({ ...prev, address: '', comment: '' }));
       if (data?.request?.id && user?.id) {
-        setQrModal({ requestId: data.request.id, studentId: user.id });
+        setQrModal({ requestId: data.request.id, studentId: user.id, status: 'pending' });
       }
       apiFetch(`/portal/attendance-requests/me?date=${selectedDate}`, { requireAuth: true })
         .then((d: any) => setMyRequests(d.requests || []))
@@ -241,7 +247,8 @@ export function PortalCalendar() {
   const monthLabel = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const weekTitle = `${new Date(weekStart + 'T12:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short' })} – ${new Date(weekDates[6] + 'T12:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-  const getRequestForClass = (classId: string) => myRequests.find(r => r.classId === classId);
+  const getRequestForClass = (classId: string, dateStr?: string) =>
+    dateStr ? myRequests.find(r => r.classId === classId && r.requestDate === dateStr) : myRequests.find(r => r.classId === classId);
 
   return (
     <div className="space-y-5">
@@ -326,7 +333,7 @@ export function PortalCalendar() {
                   {dayData && (dayData.classes?.length > 0 || dayData.activities?.length > 0) ? (
                     <div className="space-y-3">
                       {dayData.classes?.map((cl, i) => {
-                        const req = getRequestForClass(cl.id);
+                        const req = getRequestForClass(cl.id, selectedDate);
                         return (
                           <motion.div
                             key={cl.id}
@@ -521,6 +528,19 @@ export function PortalCalendar() {
                           const left = slotLeft(slot.dayOfWeek);
                           const dateStr = weekDates[slot.dayOfWeek - 1];
                           const isSelected = selectedWeekSlot?.slot.classId === slot.classId && selectedWeekSlot?.slot.dayOfWeek === slot.dayOfWeek && selectedWeekSlot?.dateStr === dateStr;
+                          const request = myRequests.find(r => r.classId === slot.classId && r.requestDate === dateStr);
+                          const isPast = dateStr < today;
+                          const slotStatus = request?.status === 'approved' ? 'approved' : request?.status === 'pending' ? 'pending' : request?.status === 'rejected' ? 'rejected' : !request && isPast ? 'missed' : 'default';
+                          const slotStyle = slotStatus === 'approved'
+                            ? { background: '#047857', borderColor: '#047857' }
+                            : slotStatus === 'pending'
+                              ? { background: '#d97706', borderColor: '#d97706' }
+                              : slotStatus === 'missed'
+                                ? { background: '#b91c1c', borderColor: '#b91c1c' }
+                                : slotStatus === 'rejected'
+                                  ? { background: '#6b7280', borderColor: '#6b7280' }
+                                  : isSelected ? { background: '#15803d', borderColor: '#15803d' } : { background: 'var(--btc-primary,#16a34a)', borderColor: 'var(--btc-primary,#16a34a)' };
+                          const ringClass = slotStatus === 'approved' ? 'ring-2 ring-emerald-300 dark:ring-emerald-600' : slotStatus === 'pending' ? 'ring-2 ring-amber-300 dark:ring-amber-600' : slotStatus === 'missed' ? 'ring-2 ring-red-300 dark:ring-red-600' : slotStatus === 'rejected' ? 'ring-2 ring-gray-300 dark:ring-gray-600' : '';
                           return (
                             <button
                               type="button"
@@ -540,22 +560,35 @@ export function PortalCalendar() {
                                 setAttendanceError('');
                                 setAttendanceSuccess(false);
                               }}
-                              className="absolute rounded-lg border overflow-hidden shadow-sm cursor-pointer transition-all hover:ring-2 hover:ring-offset-1 ring-white/80 text-left"
+                              className={`absolute rounded-lg border overflow-hidden shadow-sm cursor-pointer transition-all hover:ring-2 hover:ring-offset-1 ring-white/80 text-left ring-offset-white dark:ring-offset-gray-800 ${ringClass ? `${ringClass} ring-offset-1` : ''}`}
                               style={{
                                 left: `calc(${left}% + 2px)`,
                                 width: `calc(${slotWidth}% - 6px)`,
                                 top: `${top}%`,
                                 height: `calc(${height}% - 4px)`,
                                 minHeight: 24,
-                                background: isSelected ? '#15803d' : 'var(--btc-primary,#16a34a)',
-                                borderColor: isSelected ? '#15803d' : 'var(--btc-primary,#16a34a)',
+                                ...slotStyle,
                               }}
                             >
                               <div className="p-1.5 text-[11px] leading-tight overflow-hidden h-full flex flex-col text-white">
                                 {slot.classCode && <span className="font-mono text-[9px] opacity-80 truncate">{slot.classCode}</span>}
                                 <span className="font-semibold truncate">{slot.className || slot.programName}</span>
                                 {slot.staffName && <span className="truncate opacity-90">{slot.staffName}</span>}
-                                <span className="text-[9px] opacity-75 mt-0.5">Click to add comment / submit attendance</span>
+                                {slotStatus === 'approved' && (
+                                  <span className="text-[9px] opacity-95 mt-0.5 font-medium">✓ Approved</span>
+                                )}
+                                {slotStatus === 'pending' && (
+                                  <span className="text-[9px] opacity-95 mt-0.5 font-medium">Pending</span>
+                                )}
+                                {slotStatus === 'missed' && (
+                                  <span className="text-[9px] opacity-95 mt-0.5 font-medium">No attendance submitted</span>
+                                )}
+                                {slotStatus === 'rejected' && (
+                                  <span className="text-[9px] opacity-95 mt-0.5 font-medium">Rejected</span>
+                                )}
+                                {slotStatus === 'default' && (
+                                  <span className="text-[9px] opacity-75 mt-0.5">Click to add comment / submit attendance</span>
+                                )}
                               </div>
                             </button>
                           );
@@ -663,28 +696,45 @@ export function PortalCalendar() {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between w-full mb-4">
-              <h3 className="font-semibold text-gray-900 dark:text-white">QR code for lecturer</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-white">
+                {qrModal.status === 'approved' ? 'Attendance' : 'QR code for lecturer'}
+              </h3>
               <button onClick={() => setQrModal(null)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                 <X size={20} />
               </button>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 text-center">Lecturer scans this to open the approval page; the request will be approved when the page loads.</p>
-            <div className="bg-white p-3 rounded-xl">
-              <QRCodeSVG
-                value={typeof window !== 'undefined' ? `${window.location.origin}/staff/approve-attendance?requestId=${qrModal.requestId}&studentId=${qrModal.studentId}` : ''}
-                size={200}
-                level="M"
-              />
-            </div>
-            {typeof window !== 'undefined' && (
-              <a
-                href={`${window.location.origin}/staff/approve-attendance?requestId=${qrModal.requestId}&studentId=${qrModal.studentId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 text-xs text-gray-600 dark:text-gray-400 hover:underline break-all text-center max-w-[280px]"
-              >
-                {window.location.origin}/staff/approve-attendance?requestId={qrModal.requestId}&studentId={qrModal.studentId}
-              </a>
+            {qrModal.status === 'approved' ? (
+              <>
+                <div className="flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 mb-4">
+                  <CheckCircle size={40} className="text-green-600 dark:text-green-400" />
+                </div>
+                <p className="text-base font-medium text-gray-900 dark:text-white text-center">Presence confirmed</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">Your attendance for this class has been approved.</p>
+              </>
+            ) : (
+              <>
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full mb-3 ${qrModal.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+                  {qrModal.status === 'pending' ? 'Pending approval' : 'Rejected'}
+                </span>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 text-center">Lecturer scans this to open the approval page; the request will be approved when the page loads.</p>
+                <div className="bg-white p-3 rounded-xl">
+                  <QRCodeSVG
+                    value={typeof window !== 'undefined' ? `${window.location.origin}/staff/approve-attendance?requestId=${qrModal.requestId}&studentId=${qrModal.studentId}` : ''}
+                    size={200}
+                    level="M"
+                  />
+                </div>
+                {typeof window !== 'undefined' && (
+                  <a
+                    href={`${window.location.origin}/staff/approve-attendance?requestId=${qrModal.requestId}&studentId=${qrModal.studentId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 text-xs text-gray-600 dark:text-gray-400 hover:underline break-all text-center max-w-[280px]"
+                  >
+                    {window.location.origin}/staff/approve-attendance?requestId={qrModal.requestId}&studentId={qrModal.studentId}
+                  </a>
+                )}
+              </>
             )}
           </motion.div>
         </div>

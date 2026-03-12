@@ -468,6 +468,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'staff.attendance': { en: 'Attendance', fr: 'Présences' },
   'staff.materials': { en: 'Materials', fr: 'Matériels' },
   'staff.schedule': { en: 'Schedule', fr: 'Emploi du Temps' },
+  'staff.scheduleAndAttendance': { en: 'Schedule & Attendance', fr: 'Emploi du temps & Présences' },
   'staff.viewStudents': { en: 'View Students', fr: 'Voir les Étudiants' },
   'staff.uploadMaterial': { en: 'Upload Material', fr: 'Téléverser du Matériel' },
   'staff.todayClasses': { en: 'Today\'s Classes', fr: 'Cours du Jour' },
@@ -475,6 +476,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'staff.classesThisWeek': { en: 'Classes This Week', fr: 'Cours Cette Semaine' },
   'staff.avgAttendance': { en: 'Avg. Attendance', fr: 'Présence Moyenne' },
   'staff.panel': { en: 'Staff Panel', fr: 'Panneau Personnel' },
+  'staff.myAttendance': { en: 'My attendance', fr: 'Mes présences soumises' },
+  'staff.filterByDate': { en: 'Filter by date', fr: 'Filtrer par date' },
+  'staff.from': { en: 'From', fr: 'Du' },
+  'staff.to': { en: 'To', fr: 'Au' },
 };
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {

@@ -8,7 +8,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
-import { eq, asc, desc, inArray, and, isNull, isNotNull, sql } from 'drizzle-orm';
+import { eq, asc, desc, inArray, and, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
 import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, promotionClasses, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
 
 const app = new Hono();
@@ -2706,15 +2706,30 @@ app.get('/portal/calendar/week', async (c) => {
   }
 });
 
-// Student: my attendance requests for a date (to show status/comment in calendar)
+// Student: my attendance requests for a date or week (filter by student profileId = logged-in user)
 app.get('/portal/attendance-requests/me', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const dateStr = c.req.query('date');
-    if (!dateStr) return c.json({ error: 'date (YYYY-MM-DD) required' }, 400);
+    const weekStart = c.req.query('weekStart');
+    if (!dateStr && !weekStart) return c.json({ error: 'date or weekStart (YYYY-MM-DD) required' }, 400);
+    if (weekStart) {
+      const start = weekStart;
+      const endD = new Date(weekStart + 'T12:00:00');
+      endD.setDate(endD.getDate() + 6);
+      const end = endD.toISOString().slice(0, 10);
+      const rows = await db.select().from(studentAttendanceRequests)
+        .where(and(
+          eq(studentAttendanceRequests.profileId, auth.userId),
+          gte(studentAttendanceRequests.requestDate, start),
+          lte(studentAttendanceRequests.requestDate, end)
+        ))
+        .orderBy(asc(studentAttendanceRequests.requestDate), desc(studentAttendanceRequests.requestedAt));
+      return c.json({ requests: rows });
+    }
     const rows = await db.select().from(studentAttendanceRequests)
-      .where(and(eq(studentAttendanceRequests.studentId, auth.userId), eq(studentAttendanceRequests.requestDate, dateStr)))
+      .where(and(eq(studentAttendanceRequests.profileId, auth.userId), eq(studentAttendanceRequests.requestDate, dateStr!)))
       .orderBy(desc(studentAttendanceRequests.requestedAt));
     return c.json({ requests: rows });
   } catch (e) {
@@ -2739,7 +2754,7 @@ app.post('/attendance-requests', async (c) => {
     if (!en) return c.json({ error: 'Enrollment not found' }, 404);
     const requestDate = body.requestDate || new Date().toISOString().slice(0, 10);
     const [inserted] = await db.insert(studentAttendanceRequests).values({
-      studentId: auth.userId,
+      profileId: auth.userId,
       enrollmentId,
       classId,
       teacherId,
@@ -2757,16 +2772,57 @@ app.post('/attendance-requests', async (c) => {
   }
 });
 
+// Staff: student attendance requests where teacherId = logged-in staff profile id (admin may pass ?teacherId= to view another).
+// Optional ?status=pending returns only pending; no param returns all so staff see all student attendance.
 app.get('/attendance-requests/for-teacher', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
-    const teacherId = c.req.query('teacherId') || auth.userId;
+    const queryTeacherId = c.req.query('teacherId');
+    const teacherId = (auth.role === 'admin' && queryTeacherId) ? queryTeacherId : auth.userId;
     if (auth.role !== 'admin' && auth.userId !== teacherId) return c.json({ error: 'Forbidden' }, 403);
-    const rows = await db.select().from(studentAttendanceRequests)
-      .where(and(eq(studentAttendanceRequests.teacherId, teacherId), eq(studentAttendanceRequests.status, 'pending')))
+    const statusFilter = c.req.query('status');
+    let rows = await db.select().from(studentAttendanceRequests)
+      .where(eq(studentAttendanceRequests.teacherId, teacherId))
       .orderBy(desc(studentAttendanceRequests.requestedAt));
-    return c.json({ requests: rows });
+    // Fallback for staff: if no rows by teacherId, include requests for classes they are assigned to (e.g. legacy data with wrong teacherId)
+    if (auth.role === 'staff' && rows.length === 0) {
+      const myClassIds = await db.select({ classId: staffSchedules.classId }).from(staffSchedules).where(eq(staffSchedules.staffId, auth.userId));
+      const ids = [...new Set(myClassIds.map((x) => x.classId).filter(Boolean))] as string[];
+      if (ids.length > 0) {
+        const fallbackRows = await db.select().from(studentAttendanceRequests)
+          .where(inArray(studentAttendanceRequests.classId, ids))
+          .orderBy(desc(studentAttendanceRequests.requestedAt));
+        rows = fallbackRows;
+      }
+    }
+    if (statusFilter) rows = rows.filter((r) => r.status === statusFilter);
+    const profileIds = [...new Set(rows.map((r) => r.profileId).filter(Boolean))] as string[];
+    const nameByProfileId = new Map<string, string>();
+    if (profileIds.length > 0) {
+      const profilesList = await db.select({ id: profiles.id, name: profiles.name }).from(profiles).where(inArray(profiles.id, profileIds));
+      for (const p of profilesList) if (p.id && p.name) nameByProfileId.set(p.id, p.name);
+    }
+    const requests = rows.map((r) => ({
+      id: r.id,
+      profileId: r.profileId,
+      studentName: r.profileId ? (nameByProfileId.get(r.profileId) ?? null) : null,
+      enrollmentId: r.enrollmentId,
+      classId: r.classId,
+      teacherId: r.teacherId,
+      requestedAt: r.requestedAt,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      address: r.address,
+      status: r.status,
+      reviewedBy: r.reviewedBy,
+      reviewedAt: r.reviewedAt,
+      rejectReason: r.rejectReason,
+      requestDate: r.requestDate,
+      comment: r.comment,
+      createdAt: r.createdAt,
+    }));
+    return c.json({ requests });
   } catch (e) {
     console.error('List attendance requests error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -2830,7 +2886,8 @@ app.get('/staff/my-schedule/week', async (c) => {
   }
 });
 
-// Staff: get session for taking attendance (enrolled students + their request status for that date)
+// Staff: get session for taking attendance (enrolled students + their request status for that date).
+// Only returns students when the logged-in user's profile id is the assigned teacher (staffId) for that class/date.
 app.get('/staff/attendance/session', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
@@ -2838,18 +2895,19 @@ app.get('/staff/attendance/session', async (c) => {
     const classId = c.req.query('classId');
     const attendanceDate = c.req.query('attendanceDate') || c.req.query('date');
     if (!classId || !attendanceDate) return c.json({ error: 'classId and attendanceDate (YYYY-MM-DD) required' }, 400);
-    const d = new Date(attendanceDate);
+    const d = new Date(attendanceDate + 'T12:00:00');
     if (isNaN(d.getTime())) return c.json({ error: 'Invalid date' }, 400);
     const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
-    const weekStart = mon.toISOString().slice(0, 10);
+    const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
+    const weekStart = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
     const [schedule] = await db.select().from(staffSchedules).where(and(
       eq(staffSchedules.staffId, auth.userId),
       eq(staffSchedules.classId, classId),
       eq(staffSchedules.weekStart, weekStart),
       eq(staffSchedules.dayOfWeek, dayOfWeek),
     )).limit(1);
-    if (!schedule && auth.role !== 'admin') return c.json({ error: 'You are not scheduled for this class on this date' }, 403);
+    // Load student attendance only when the teacher (staff) for this class/date is the logged-in profile
+    if (!schedule) return c.json({ classId, attendanceDate, scheduleId: null, students: [], notAssigned: true });
     const enrolled = await db.select({
       enrollmentId: enrollments.id,
       studentId: enrollments.studentId,
@@ -2859,15 +2917,15 @@ app.get('/staff/attendance/session', async (c) => {
       .where(and(eq(enrollments.classId, classId), sql`${enrollments.status} IN ('active', 'pending')`));
     const requestRows = await db.select().from(studentAttendanceRequests)
       .where(and(eq(studentAttendanceRequests.classId, classId), eq(studentAttendanceRequests.requestDate, attendanceDate)));
-    const byStudent = new Map(requestRows.map((r) => [r.studentId, r]));
+    const byProfileId = new Map(requestRows.map((r) => [r.profileId, r]));
     const students = enrolled.map((e) => ({
       enrollmentId: e.enrollmentId,
       studentId: e.studentId,
       name: e.studentName,
       email: e.studentEmail,
-      requestId: byStudent.get(e.studentId)?.id,
-      requestStatus: byStudent.get(e.studentId)?.status ?? null,
-      comment: byStudent.get(e.studentId)?.comment ?? null,
+      requestId: byProfileId.get(e.studentId)?.id,
+      requestStatus: byProfileId.get(e.studentId)?.status ?? null,
+      comment: byProfileId.get(e.studentId)?.comment ?? null,
     }));
     return c.json({ classId, attendanceDate, scheduleId: schedule?.id, students });
   } catch (e) {
@@ -2876,30 +2934,36 @@ app.get('/staff/attendance/session', async (c) => {
   }
 });
 
-// Staff: scan student QR to mark present (creates or updates attendance request as approved)
+// Staff: scan student QR to mark present. Same action as approval link / Approve button: approve the student_attendance_request.
+// If body.requestId is provided, approves that request (same as PATCH /attendance-requests/:id). Otherwise lookup by profileId+classId+requestDate.
 app.post('/staff/attendance/scan', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const body = await c.req.json();
-    const { studentId, enrollmentId, classId, requestDate } = body;
-    if (!studentId || !enrollmentId || !classId || !requestDate) return c.json({ error: 'studentId, enrollmentId, classId, requestDate required' }, 400);
-    const d = new Date(requestDate);
+
+    if (body.requestId) {
+      const [req] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, body.requestId));
+      if (!req) return c.json({ error: 'Not found' }, 404);
+      if (req.teacherId !== auth.userId && (auth.role && String(auth.role).toLowerCase()) !== 'admin') return c.json({ error: 'Forbidden' }, 403);
+      await db.update(studentAttendanceRequests).set({ status: 'approved', reviewedBy: auth.userId, reviewedAt: new Date() }).where(eq(studentAttendanceRequests.id, req.id));
+      const [updated] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, req.id));
+      return c.json({ request: updated, created: false });
+    }
+
+    const profileId = body.profileId ?? body.studentId;
+    const { enrollmentId, classId, requestDate } = body;
+    if (!profileId || !enrollmentId || !classId || !requestDate) return c.json({ error: 'profileId (or studentId), enrollmentId, classId, requestDate required' }, 400);
+    const d = new Date(requestDate + 'T12:00:00');
     if (isNaN(d.getTime())) return c.json({ error: 'Invalid date' }, 400);
-    const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
-    const weekStart = mon.toISOString().slice(0, 10);
-    const [schedule] = await db.select().from(staffSchedules).where(and(
-      eq(staffSchedules.staffId, auth.userId),
-      eq(staffSchedules.classId, classId),
-      eq(staffSchedules.weekStart, weekStart),
-      eq(staffSchedules.dayOfWeek, dayOfWeek),
-    )).limit(1);
-    if (!schedule && auth.role !== 'admin') return c.json({ error: 'You are not scheduled for this class on this date' }, 403);
-    const [en] = await db.select().from(enrollments).where(and(eq(enrollments.id, enrollmentId), eq(enrollments.studentId, studentId), eq(enrollments.classId, classId)));
+    const roleLowerScan = (auth.role && String(auth.role).toLowerCase()) || '';
+    const isAdminOrStaffScan = roleLowerScan === 'admin' || roleLowerScan === 'staff';
+    const [assignedToClassScan] = await db.select({ id: staffSchedules.id }).from(staffSchedules).where(and(eq(staffSchedules.staffId, auth.userId), eq(staffSchedules.classId, classId))).limit(1);
+    if (!isAdminOrStaffScan && !assignedToClassScan) return c.json({ error: `Forbidden - staff or assignment required (role: ${auth.role ?? 'none'})` }, 403);
+    const [en] = await db.select().from(enrollments).where(and(eq(enrollments.id, enrollmentId), eq(enrollments.studentId, profileId), eq(enrollments.classId, classId)));
     if (!en) return c.json({ error: 'Enrollment not found' }, 404);
     const [existing] = await db.select().from(studentAttendanceRequests).where(and(
-      eq(studentAttendanceRequests.studentId, studentId),
+      eq(studentAttendanceRequests.profileId, profileId),
       eq(studentAttendanceRequests.classId, classId),
       eq(studentAttendanceRequests.requestDate, requestDate)
     )).limit(1);
@@ -2909,7 +2973,7 @@ app.post('/staff/attendance/scan', async (c) => {
       return c.json({ request: updated, created: false });
     }
     const [inserted] = await db.insert(studentAttendanceRequests).values({
-      studentId,
+      profileId,
       enrollmentId,
       classId,
       teacherId: auth.userId,
@@ -3238,9 +3302,19 @@ app.get('/lecturer-attendance', async (c) => {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const status = c.req.query('status');
+    const dateFrom = c.req.query('dateFrom'); // YYYY-MM-DD
+    const dateTo = c.req.query('dateTo'); // YYYY-MM-DD
     let rows = await db.select().from(lecturerAttendance).orderBy(desc(lecturerAttendance.attendanceDate));
     if (auth.role === 'staff') rows = rows.filter((r) => r.staffId === auth.userId);
     if (status) rows = rows.filter((r) => r.status === status);
+    if (dateFrom) rows = rows.filter((r) => r.attendanceDate >= dateFrom);
+    if (dateTo) rows = rows.filter((r) => r.attendanceDate <= dateTo);
+    const classIds = [...new Set(rows.map((r) => r.classId).filter(Boolean))] as string[];
+    let classMap = new Map<string, string>();
+    if (classIds.length > 0) {
+      const classesList = await db.select({ id: programClasses.id, name: programClasses.name, code: programClasses.code }).from(programClasses).where(inArray(programClasses.id, classIds));
+      classesList.forEach((cl) => classMap.set(cl.id, (cl.code || cl.name || cl.id?.slice(0, 8) || '') as string));
+    }
     const allStudentIds = new Set<string>();
     for (const r of rows) {
       const ids = Array.isArray((r as any).presentStudentIds) ? (r as any).presentStudentIds : [];
@@ -3254,7 +3328,8 @@ app.get('/lecturer-attendance', async (c) => {
     const attendances = rows.map((r) => {
       const ids = Array.isArray((r as any).presentStudentIds) ? (r as any).presentStudentIds as string[] : [];
       const presentStudentNames = ids.map((id) => profileMap.get(id)?.name || id?.slice(0, 8) || '');
-      return { ...r, presentStudentNames };
+      const className = classMap.get(r.classId) || r.classId?.slice(0, 8) || '';
+      return { ...r, presentStudentNames, className };
     });
     return c.json({ attendances });
   } catch (e) {

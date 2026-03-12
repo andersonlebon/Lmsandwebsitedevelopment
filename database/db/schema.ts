@@ -300,7 +300,7 @@ export const activityClasses = pgTable('activity_classes', {
 // ─── Student attendance (request with location; lecturer approves/rejects)
 export const studentAttendanceRequests = pgTable('student_attendance_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
-  studentId: uuid('student_id').notNull(),
+  profileId: uuid('profile_id').notNull(), // profiles.id of the student (for easy join with profiles)
   enrollmentId: uuid('enrollment_id').notNull(),
   classId: uuid('class_id').notNull(),
   teacherId: uuid('teacher_id').notNull(), // staff teaching this class
@@ -574,7 +574,7 @@ export const enrollmentProgressRelations = relations(enrollmentProgress, ({ one 
 }));
 
 export const studentAttendanceRequestsRelations = relations(studentAttendanceRequests, ({ one }) => ({
-  student: one(profiles, { fields: [studentAttendanceRequests.studentId], references: [profiles.id] }),
+  student: one(profiles, { fields: [studentAttendanceRequests.profileId], references: [profiles.id] }),
   enrollment: one(enrollments, { fields: [studentAttendanceRequests.enrollmentId], references: [enrollments.id] }),
   class: one(programClasses, { fields: [studentAttendanceRequests.classId], references: [programClasses.id] }),
   teacher: one(profiles, { fields: [studentAttendanceRequests.teacherId], references: [profiles.id] }),

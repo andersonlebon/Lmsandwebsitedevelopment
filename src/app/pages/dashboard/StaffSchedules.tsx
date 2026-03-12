@@ -20,6 +20,23 @@ function formatTime(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+function toLocalYYYYMMDD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function getMondayOfCurrentWeek(): string {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  return toLocalYYYYMMDD(mon);
+}
+function addWeeksToWeekStart(weekStart: string, delta: number): string {
+  const d = new Date(weekStart + 'T12:00:00');
+  d.setDate(d.getDate() + delta * 7);
+  return toLocalYYYYMMDD(d);
+}
+
 interface WeekSlot {
   classId: string;
   classCode?: string;
@@ -40,12 +57,7 @@ interface WeekSlot {
 
 export function StaffSchedules() {
   const { lang } = useLanguage();
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    return new Date(d.setDate(diff)).toISOString().slice(0, 10);
-  });
+  const [weekStart, setWeekStart] = useState(getMondayOfCurrentWeek);
   const [departmentId, setDepartmentId] = useState('');
   const [programId, setProgramId] = useState('');
   const [promotionId, setPromotionId] = useState('');
@@ -173,7 +185,7 @@ export function StaffSchedules() {
   for (let i = 0; i < 7; i++) {
     const d = new Date(mon);
     d.setDate(mon.getDate() + i);
-    weekDates.push(d.toISOString().slice(0, 10));
+    weekDates.push(toLocalYYYYMMDD(d));
   }
 
   const slotTop = (startTime: string) => {
@@ -202,22 +214,14 @@ export function StaffSchedules() {
         </h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              const d = new Date(weekStart + 'T12:00:00');
-              d.setDate(d.getDate() - 7);
-              setWeekStart(d.toISOString().slice(0, 10));
-            }}
+            onClick={() => setWeekStart(addWeeksToWeekStart(weekStart, -1))}
             className="p-2 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <ChevronLeft size={20} />
           </button>
           <span className="min-w-[220px] text-center font-medium text-gray-900 dark:text-white">{weekTitle}</span>
           <button
-            onClick={() => {
-              const d = new Date(weekStart + 'T12:00:00');
-              d.setDate(d.getDate() + 7);
-              setWeekStart(d.toISOString().slice(0, 10));
-            }}
+            onClick={() => setWeekStart(addWeeksToWeekStart(weekStart, 1))}
             className="p-2 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <ChevronRight size={20} />

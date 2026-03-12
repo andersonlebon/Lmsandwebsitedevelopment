@@ -9,14 +9,13 @@ interface ProtectedRouteProps {
   children?: React.ReactNode;
 }
 
-/** Maps a role to its "home" route */
+/** Maps a role to its "home" route (role compared case-insensitively) */
 function roleHome(role: UserRole): string {
-  switch (role) {
-    case 'admin': return '/dashboard';
-    case 'staff': return '/staff';
-    case 'student': return '/portal';
-    default: return '/login';
-  }
+  const r = (role && String(role).toLowerCase()) || '';
+  if (r === 'admin') return '/dashboard';
+  if (r === 'staff') return '/staff';
+  if (r === 'student') return '/portal';
+  return '/login';
 }
 
 export function ProtectedRoute({ allowedRoles, children }: ProtectedRouteProps) {
@@ -171,9 +170,10 @@ export function ProtectedRoute({ allowedRoles, children }: ProtectedRouteProps) 
     );
   }
 
-  // User is authenticated but doesn't have the right role
-  if (!allowedRoles.includes(user.role)) {
-    // Redirect to their correct dashboard instead of showing an error
+  // User is authenticated but doesn't have the right role (compare case-insensitively)
+  const userRoleLower = (user.role && String(user.role).toLowerCase()) || '';
+  const hasAllowedRole = allowedRoles.some((r) => String(r).toLowerCase() === userRoleLower);
+  if (!hasAllowedRole) {
     const correctHome = roleHome(user.role);
     return <Navigate to={correctHome} replace />;
   }

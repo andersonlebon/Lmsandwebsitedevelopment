@@ -53,11 +53,9 @@ import { RecordsLayout, RecordsRedirect } from './pages/portal/RecordsLayout';
 import { ConnectLayout, ConnectRedirect } from './pages/portal/ConnectLayout';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { StaffClasses } from './pages/staff/StaffClasses';
-import { StaffAttendance } from './pages/staff/StaffAttendance';
+import { StaffAttendancePage } from './pages/staff/StaffAttendancePage';
 import { StaffMaterials } from './pages/staff/StaffMaterials';
-import { StaffSchedule } from './pages/staff/StaffSchedule';
 import { StaffWallet } from './pages/staff/StaffWallet';
-import { StaffAttendanceRequests } from './pages/staff/StaffAttendanceRequests';
 import { StaffApproveAttendance } from './pages/staff/StaffApproveAttendance';
 import { createElement } from 'react';
 import { Navigate } from 'react-router';
@@ -215,11 +213,11 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: StaffDashboard },
       { path: 'classes', Component: StaffClasses },
-      { path: 'attendance', Component: StaffAttendance },
-      { path: 'attendance-requests', Component: StaffAttendanceRequests },
+      { path: 'attendance', Component: StaffAttendancePage },
+      { path: 'attendance-requests', Component: () => createElement(Navigate, { to: '/staff/attendance?tab=requests', replace: true }) },
       { path: 'approve-attendance', Component: StaffApproveAttendance },
       { path: 'materials', Component: StaffMaterials },
-      { path: 'schedule', Component: StaffSchedule },
+      { path: 'schedule', Component: () => createElement(Navigate, { to: '/staff/attendance', replace: true }) },
       { path: 'wallet', Component: StaffWallet },
     ],
   },
