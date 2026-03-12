@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ClipboardCheck, CheckCircle, XCircle, Clock, QrCode, Users, Send, Loader2, ChevronLeft, ChevronRight, Wallet, X } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, XCircle, Clock, Users, Loader2, ChevronLeft, ChevronRight, Wallet, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
 
@@ -76,9 +76,7 @@ export function StaffAttendance() {
   const [attendance, setAttendance] = useState<Record<string, string>>({}); // studentId -> 'present' | 'late' | 'absent'
   const [submitToAdminLoading, setSubmitToAdminLoading] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  const [qrPaste, setQrPaste] = useState('');
-  const [qrError, setQrError] = useState('');
-  const [scanSuccess, setScanSuccess] = useState(false);
+  const [requestActionLoading, setRequestActionLoading] = useState<string | null>(null);
   const [submissionStatusByKey, setSubmissionStatusByKey] = useState<Record<string, 'pending' | 'approved' | 'rejected'>>({});
 
   useEffect(() => {
@@ -137,8 +135,7 @@ export function StaffAttendance() {
         const initial: Record<string, string> = {};
         (d.students || []).forEach((s: SessionStudent) => {
           if (s.requestStatus === 'approved') initial[s.studentId] = 'present';
-          else if (s.requestStatus === 'rejected') initial[s.studentId] = 'absent';
-          else if (s.requestStatus === 'pending') initial[s.studentId] = ''; // leave unset or could default present
+          else initial[s.studentId] = 'absent'; // no record, pending, or rejected → absent
         });
         setAttendance(initial);
       })
@@ -146,106 +143,39 @@ export function StaffAttendance() {
       .finally(() => setSessionLoading(false));
   };
 
-  const mark = (studentId: string, status: string) => {
+  const mark = (studentId: string, status: string, requestStatus?: string | null) => {
+    if ((status === 'present' || status === 'late') && requestStatus !== 'approved') return;
     setAttendance(prev => ({ ...prev, [studentId]: status }));
   };
 
   const markAllPresent = () => {
     if (!session) return;
     const all: Record<string, string> = {};
-    session.students.forEach(s => { all[s.studentId] = 'present'; });
+    session.students.forEach(s => { all[s.studentId] = s.requestStatus === 'approved' ? 'present' : 'absent'; });
     setAttendance(all);
   };
 
-  const handleScanFromPaste = async () => {
-    setQrError('');
-    setScanSuccess(false);
-    const trimmed = (qrPaste || '').trim();
+  const handleRequestAction = async (requestId: string, status: 'approved' | 'rejected', studentId: string, rejectReason?: string) => {
+    setRequestActionLoading(requestId);
     try {
-      // If pasted value is the approval link (same action as opening the link or clicking Approve)
-      const approvalMatch = trimmed.match(/approve-attendance\?[^#]*requestId=([^&\s]+)(?:&studentId=([^&\s]*))?/i) || trimmed.match(/requestId=([^&\s]+)/i);
-      const requestIdFromUrl = approvalMatch?.[1];
-      if (requestIdFromUrl) {
-        await apiFetch(`/attendance-requests/${requestIdFromUrl}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'approved' }),
-          requireAuth: true,
-        });
-        setScanSuccess(true);
-        setQrPaste('');
-        const studentIdFromUrl = approvalMatch?.[2];
-        if (session && studentIdFromUrl && session.classId && session.attendanceDate) {
-          setAttendance(prev => ({ ...prev, [studentIdFromUrl]: 'present' }));
-          setSession(prev => prev ? {
-            ...prev,
-            students: prev.students.map(s => s.studentId === studentIdFromUrl ? { ...s, requestStatus: 'approved' } : s),
-          } : null);
-        }
-        return;
-      }
-      const payload = JSON.parse(trimmed);
-      const { requestId: requestIdFromPayload, studentId, enrollmentId, classId, requestDate } = payload;
-      if (requestIdFromPayload) {
-        await apiFetch(`/attendance-requests/${requestIdFromPayload}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'approved' }),
-          requireAuth: true,
-        });
-        setScanSuccess(true);
-        setQrPaste('');
-        if (session && studentId && requestDate === session.attendanceDate && classId === session.classId) {
-          setAttendance(prev => ({ ...prev, [studentId]: 'present' }));
-          setSession(prev => prev ? {
-            ...prev,
-            students: prev.students.map(s => s.studentId === studentId ? { ...s, requestStatus: 'approved' } : s),
-          } : null);
-        }
-        return;
-      }
-      if (!studentId || !enrollmentId || !classId || !requestDate) {
-        setQrError('Invalid QR data: missing studentId, enrollmentId, classId or requestDate');
-        return;
-      }
-      await apiFetch('/staff/attendance/scan', {
-        method: 'POST',
-        body: JSON.stringify({ studentId, enrollmentId, classId, requestDate }),
+      await apiFetch(`/attendance-requests/${requestId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status, rejectReason }),
         requireAuth: true,
       });
-      setScanSuccess(true);
-      setQrPaste('');
-      if (session && requestDate === session.attendanceDate && classId === session.classId) {
-        setAttendance(prev => ({ ...prev, [studentId]: 'present' }));
-        setSession(prev => prev ? {
-          ...prev,
-          students: prev.students.map(s => s.studentId === studentId ? { ...s, requestStatus: 'approved' } : s),
-        } : null);
+      if (session) {
+        setSession(prev => prev ? { ...prev, students: prev.students.map(s => s.studentId === studentId ? { ...s, requestStatus: status } : s) } : null);
+        if (status === 'approved') setAttendance(prev => ({ ...prev, [studentId]: 'present' }));
+        else setAttendance(prev => ({ ...prev, [studentId]: 'absent' }));
       }
-    } catch (e: any) {
-      setQrError(e.message || 'Invalid QR data or scan failed');
+    } finally {
+      setRequestActionLoading(null);
     }
-  };
-
-  const handleMarkPresent = async (s: SessionStudent) => {
-    if (!session) return;
-    try {
-      await apiFetch('/staff/attendance/scan', {
-        method: 'POST',
-        body: JSON.stringify({
-          studentId: s.studentId,
-          enrollmentId: s.enrollmentId,
-          classId: session.classId,
-          requestDate: session.attendanceDate,
-        }),
-        requireAuth: true,
-      });
-      setAttendance(prev => ({ ...prev, [s.studentId]: 'present' }));
-      setSession(prev => prev ? { ...prev, students: prev.students.map(st => st.studentId === s.studentId ? { ...st, requestStatus: 'approved' } : st) } : null);
-    } catch (_) {}
   };
 
   const handleSubmitToAdmin = async () => {
     if (!session || !selectedSlot) return;
-    const presentStudentIds = session.students.filter(s => attendance[s.studentId] === 'present' || attendance[s.studentId] === 'late').map(s => s.studentId);
+    const presentStudentIds = session.students.filter(s => (attendance[s.studentId] === 'present' || attendance[s.studentId] === 'late') && s.requestStatus === 'approved').map(s => s.studentId);
     setSubmitToAdminLoading(true);
     setSubmitSuccess(false);
     try {
@@ -271,7 +201,7 @@ export function StaffAttendance() {
     }
   };
 
-  const presentCount = session ? session.students.filter(s => attendance[s.studentId] === 'present' || attendance[s.studentId] === 'late').length : 0;
+  const presentCount = session ? session.students.filter(s => (attendance[s.studentId] === 'present' || attendance[s.studentId] === 'late') && s.requestStatus === 'approved').length : 0;
 
   const rows = Math.ceil(((HOUR_END - HOUR_START) * 60) / SLOT_MINUTES);
   const slotTop = (startTime: string) => {
@@ -433,27 +363,6 @@ export function StaffAttendance() {
             </div>
           </div>
 
-          {/* QR scan / paste */}
-          <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/30 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-end gap-2">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                <QrCode size={12} className="inline mr-1" /> {lang === 'fr' ? 'Coller les données QR (étudiant scanné)' : 'Paste QR data (scanned student)'}
-              </label>
-              <input
-                type="text"
-                placeholder={lang === 'fr' ? 'Coller le lien d\'approbation ou le JSON QR' : 'Paste approval link or QR JSON'}
-                value={qrPaste}
-                onChange={e => { setQrPaste(e.target.value); setQrError(''); setScanSuccess(false); }}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs font-mono"
-              />
-            </div>
-            <button onClick={handleScanFromPaste} className="px-4 py-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600">
-              {lang === 'fr' ? 'Ajouter' : 'Add'}
-            </button>
-            {qrError && <p className="text-xs text-red-500 w-full">{qrError}</p>}
-            {scanSuccess && <p className="text-xs text-green-600 w-full">{lang === 'fr' ? 'Étudiant ajouté.' : 'Student added.'}</p>}
-          </div>
-
           <div className="overflow-auto flex-1 min-h-0">
           {sessionLoading ? (
             <div className="flex justify-center py-12"><Loader2 size={28} className="animate-spin text-gray-400" /></div>
@@ -478,11 +387,28 @@ export function StaffAttendance() {
                         {s.comment && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{s.comment}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {s.requestStatus !== 'approved' && (
-                        <button onClick={() => handleMarkPresent(s)} className="text-xs px-2 py-1 rounded bg-green-50 dark:bg-green-900/20 text-green-600 hover:bg-green-100">
-                          {lang === 'fr' ? 'Présent' : 'Present'}
-                        </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {s.requestStatus === 'pending' && s.requestId && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRequestAction(s.requestId!, 'approved', s.studentId)}
+                            disabled={requestActionLoading === s.requestId}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50"
+                          >
+                            {requestActionLoading === s.requestId ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                            {lang === 'fr' ? 'Approuver' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { const reason = window.prompt(lang === 'fr' ? 'Raison du rejet (optionnel)' : 'Reject reason (optional)'); handleRequestAction(s.requestId!, 'rejected', s.studentId, reason || undefined); }}
+                            disabled={requestActionLoading === s.requestId}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50"
+                          >
+                            <XCircle size={12} />
+                            {lang === 'fr' ? 'Rejeter' : 'Reject'}
+                          </button>
+                        </>
                       )}
                       {[
                         { val: 'present', icon: CheckCircle, color: 'green', label: t('att.present') },
@@ -490,12 +416,15 @@ export function StaffAttendance() {
                         { val: 'absent', icon: XCircle, color: 'red', label: t('att.absent') },
                       ].map(opt => {
                         const active = attendance[s.studentId] === opt.val;
+                        const disabled = (opt.val === 'present' || opt.val === 'late') && s.requestStatus !== 'approved';
                         return (
                           <button
                             key={opt.val}
-                            onClick={() => mark(s.studentId, opt.val)}
+                            onClick={() => !disabled && mark(s.studentId, opt.val, s.requestStatus)}
+                            disabled={disabled}
+                            title={disabled ? (lang === 'fr' ? 'Demande de présence approuvée requise' : 'Approved attendance request required') : undefined}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 border ${
-                              active
+                              disabled ? 'opacity-50 cursor-not-allowed border-gray-200 dark:border-gray-700 text-gray-400' : active
                                 ? opt.color === 'green' ? 'bg-green-50 dark:bg-green-900/30 border-green-300 text-green-700 dark:text-green-400'
                                 : opt.color === 'yellow' ? 'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-300 text-yellow-700 dark:text-yellow-400'
                                 : 'bg-red-50 dark:bg-red-900/30 border-red-300 text-red-700 dark:text-red-400'
@@ -519,8 +448,8 @@ export function StaffAttendance() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md">
                     {lang === 'fr'
-                      ? "Soumettez la liste des présents à l'admin. Une fois approuvée, votre cours sera pris en compte pour votre rémunération."
-                      : 'Submit the list of who attended so admin can approve it. Once approved, this session counts toward your payment.'}
+                      ? "Consultez la liste, approuvez ou rejetez les demandes soumises, marquez présents/tardifs/absents, puis soumettez à l'admin pour validation."
+                      : 'View the list, approve or reject submitted requests, mark present/late/absent, then submit to admin for validation.'}
                   </p>
                   <button
                     onClick={handleSubmitToAdmin}

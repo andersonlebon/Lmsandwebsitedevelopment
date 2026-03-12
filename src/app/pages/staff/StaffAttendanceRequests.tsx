@@ -81,6 +81,11 @@ export function StaffAttendanceRequests() {
                     )}
                   </p>
                   {r.address && <p className="text-xs text-gray-500 mt-1">{r.address}</p>}
+                  {r.comment && (
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1.5 italic">
+                      {lang === 'fr' ? 'Commentaire' : 'Comment'}: {r.comment}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {isPending && (

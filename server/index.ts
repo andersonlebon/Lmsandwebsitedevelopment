@@ -2967,20 +2967,12 @@ app.post('/staff/attendance/scan', async (c) => {
       eq(studentAttendanceRequests.classId, classId),
       eq(studentAttendanceRequests.requestDate, requestDate)
     )).limit(1);
-    if (existing) {
-      await db.update(studentAttendanceRequests).set({ status: 'approved', reviewedBy: auth.userId, reviewedAt: new Date() }).where(eq(studentAttendanceRequests.id, existing.id));
-      const [updated] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, existing.id));
-      return c.json({ request: updated, created: false });
+    if (!existing) {
+      return c.json({ error: 'No attendance request found. The student must submit an attendance request first (e.g. from the portal); then you can approve it via the QR link.' }, 400);
     }
-    const [inserted] = await db.insert(studentAttendanceRequests).values({
-      profileId,
-      enrollmentId,
-      classId,
-      teacherId: auth.userId,
-      requestDate,
-      status: 'approved',
-    }).returning();
-    return c.json({ request: inserted, created: true });
+    await db.update(studentAttendanceRequests).set({ status: 'approved', reviewedBy: auth.userId, reviewedAt: new Date() }).where(eq(studentAttendanceRequests.id, existing.id));
+    const [updated] = await db.select().from(studentAttendanceRequests).where(eq(studentAttendanceRequests.id, existing.id));
+    return c.json({ request: updated, created: false });
   } catch (e) {
     console.error('Staff attendance scan error:', e);
     return c.json({ error: (e as Error).message }, 500);
@@ -3343,13 +3335,25 @@ app.post('/lecturer-attendance', async (c) => {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const body = await c.req.json();
-    const presentStudentIds = Array.isArray(body.presentStudentIds) ? body.presentStudentIds : [];
+    const classId = body.classId;
+    const attendanceDate = body.attendanceDate || new Date().toISOString().slice(0, 10);
+    const requestedIds = Array.isArray(body.presentStudentIds) ? body.presentStudentIds : [];
+    const requestSet = new Set(requestedIds);
+    const approvedWhere = and(
+      eq(studentAttendanceRequests.classId, classId),
+      eq(studentAttendanceRequests.requestDate, attendanceDate),
+      eq(studentAttendanceRequests.status, 'approved')
+    );
+    const approvedForSession = requestedIds.length > 0
+      ? await db.select({ profileId: studentAttendanceRequests.profileId }).from(studentAttendanceRequests).where(approvedWhere)
+      : [];
+    const presentStudentIds = approvedForSession.map((r) => r.profileId).filter((id) => requestSet.has(id));
     const [inserted] = await db.insert(lecturerAttendance).values({
       staffId: auth.userId,
       scheduleId: body.scheduleId ?? null,
-      classId: body.classId,
-      attendanceDate: body.attendanceDate || new Date().toISOString().slice(0, 10),
-      presentStudentIds: presentStudentIds,
+      classId,
+      attendanceDate,
+      presentStudentIds,
       status: 'pending',
     }).returning();
     return c.json({ attendance: inserted });
