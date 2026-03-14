@@ -3370,8 +3370,21 @@ app.get('/lecturer-attendance/:id/details', async (c) => {
     });
     const [classRow] = await db.select({ name: programClasses.name, code: programClasses.code }).from(programClasses).where(eq(programClasses.id, att.classId));
     const className = classRow ? (classRow.code || classRow.name || att.classId?.slice(0, 8) || '') : (att.classId?.slice(0, 8) || '');
+    const [teacherProfile] = await db.select({ name: profiles.name }).from(profiles).where(eq(profiles.id, att.staffId));
+    const teacherName = teacherProfile?.name ?? att.staffId?.slice(0, 8) ?? '—';
+    let material = '—';
+    if (att.scheduleId) {
+      const [schedule] = await db.select({ lessonId: staffSchedules.lessonId, lessonTitle: staffSchedules.lessonTitle }).from(staffSchedules).where(eq(staffSchedules.id, att.scheduleId));
+      if (schedule?.lessonId) {
+        const [lesson] = await db.select({ title: lessons.title }).from(lessons).where(eq(lessons.id, schedule.lessonId));
+        material = schedule.lessonTitle || lesson?.title || '—';
+      } else if (schedule?.lessonTitle) {
+        material = schedule.lessonTitle;
+      }
+    }
+    const preparedLesson = (att as any).preparedLesson ?? '';
     return c.json({
-      attendance: { id: att.id, classId: att.classId, className, attendanceDate: att.attendanceDate, status: att.status, submittedAt: att.submittedAt },
+      attendance: { id: att.id, classId: att.classId, className, attendanceDate: att.attendanceDate, status: att.status, submittedAt: att.submittedAt, teacherName, material, preparedLesson: preparedLesson || null },
       students,
     });
   } catch (e) {
@@ -3399,6 +3412,7 @@ app.post('/lecturer-attendance', async (c) => {
       : [];
     const presentStudentIds = approvedForSession.map((r) => r.profileId).filter((id) => requestSet.has(id));
     const presentRequestIds = approvedForSession.filter((r) => requestSet.has(r.profileId)).map((r) => r.id);
+    const preparedLesson = typeof body.preparedLesson === 'string' ? body.preparedLesson.trim() || null : null;
     const [inserted] = await db.insert(lecturerAttendance).values({
       staffId: auth.userId,
       scheduleId: body.scheduleId ?? null,
@@ -3406,6 +3420,7 @@ app.post('/lecturer-attendance', async (c) => {
       attendanceDate,
       presentStudentIds,
       presentRequestIds: presentRequestIds.length > 0 ? presentRequestIds : [],
+      preparedLesson: preparedLesson ?? '',
       status: 'pending',
     }).returning();
     return c.json({ attendance: inserted });

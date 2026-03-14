@@ -76,6 +76,7 @@ export function StaffAttendance() {
   const [attendance, setAttendance] = useState<Record<string, string>>({}); // studentId -> 'present' | 'late' | 'absent'
   const [submitToAdminLoading, setSubmitToAdminLoading] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [preparedLesson, setPreparedLesson] = useState('');
   const [requestActionLoading, setRequestActionLoading] = useState<string | null>(null);
   const [submissionStatusByKey, setSubmissionStatusByKey] = useState<Record<string, 'pending' | 'approved' | 'rejected'>>({});
 
@@ -179,10 +180,12 @@ export function StaffAttendance() {
           classId: session.classId,
           attendanceDate: session.attendanceDate,
           presentStudentIds,
+          preparedLesson: preparedLesson.trim() || undefined,
         }),
         requireAuth: true,
       });
       setSubmitSuccess(true);
+      setPreparedLesson('');
       setSubmissionStatusByKey(prev => ({ ...prev, [`${session.classId}-${session.attendanceDate}`]: 'pending' }));
       setTimeout(() => {
         setSelectedSlot(null);
@@ -448,8 +451,20 @@ export function StaffAttendance() {
           ) : null}
           </div>
           {session && session.students.length > 0 && (
-            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 shrink-0">
-              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mb-3">
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 shrink-0 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  {lang === 'fr' ? 'Leçon préparée / enseignée ce jour (optionnel)' : 'Lesson prepared / taught today (optional)'}
+                </label>
+                <textarea
+                  value={preparedLesson}
+                  onChange={e => setPreparedLesson(e.target.value)}
+                  placeholder={lang === 'fr' ? "Décrivez brièvement ce que vous avez enseigné..." : "Briefly describe what you taught..."}
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm resize-none"
+                />
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md">
                 {lang === 'fr'
                   ? "Consultez la liste, approuvez ou rejetez les demandes soumises, marquez présents/tardifs/absents, puis soumettez à l'admin pour validation."
                   : 'View the list, approve or reject submitted requests, mark present/late/absent, then submit to admin for validation.'}

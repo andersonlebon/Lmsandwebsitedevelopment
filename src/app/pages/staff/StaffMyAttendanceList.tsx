@@ -54,7 +54,10 @@ function exportAttendanceCSV(a: AttendanceRow) {
 function printAttendanceDetails(
   a: AttendanceRow,
   students: DetailStudent[],
-  lang: string
+  lang: string,
+  teacherName?: string | null,
+  material?: string | null,
+  preparedLesson?: string | null
 ) {
   const isFr = lang === 'fr';
   const statusLabel = a.status === 'approved' ? (isFr ? 'Approuvé' : 'Approved') : a.status === 'rejected' ? (isFr ? 'Rejeté' : 'Rejected') : (isFr ? 'En attente' : 'Pending');
@@ -63,6 +66,9 @@ function printAttendanceDetails(
     s.present ? (isFr ? 'Présent' : 'Present') : (isFr ? 'Absent' : 'Absent'),
     s.comment ?? '—',
   ]);
+  const teacher = teacherName ?? '—';
+  const materialText = material ?? '—';
+  const preparedText = preparedLesson ?? '—';
   const html = `
 <!DOCTYPE html>
 <html>
@@ -75,6 +81,8 @@ function printAttendanceDetails(
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
   th { background: #f5f5f5; font-weight: 600; }
+  .footer-meta { margin-top: 16px; font-size: 14px; }
+  .footer-meta dt { color: #666; }
 </style>
 </head>
 <body>
@@ -95,6 +103,10 @@ function printAttendanceDetails(
       ${studentRows.map(row => `<tr>${row.map(c => `<td>${String(c).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')}</tr>`).join('')}
     </tbody>
   </table>
+  <dl class="footer-meta">
+    <div><dt>${isFr ? 'Enseignant' : 'Teacher'}</dt><dd>${String(teacher).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</dd></div>
+    <div><dt>${isFr ? 'Matériel utilisé' : 'Material used'}</dt><dd>${String(materialText).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</dd></div>
+  </dl>
 </body>
 </html>`;
   const win = window.open('', '_blank');
@@ -111,7 +123,10 @@ function printAttendanceDetails(
 function exportAttendancePDF(
   a: AttendanceRow,
   students: DetailStudent[],
-  lang: string
+  lang: string,
+  teacherName?: string | null,
+  material?: string | null,
+  preparedLesson?: string | null
 ) {
   const isFr = lang === 'fr';
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -138,6 +153,12 @@ function exportAttendancePDF(
     styles: { fontSize: 8, textColor: [0, 0, 0] },
     headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
   });
+  const finalY = (doc as any).lastAutoTable?.finalY ?? 22;
+  const footerY = finalY + 10;
+  doc.setFontSize(10);
+  doc.text(`${isFr ? 'Enseignant' : 'Teacher'}: ${teacherName ?? '—'}`, 14, footerY);
+  doc.text(`${isFr ? 'Leçon assignée' : 'Lesson assigned'}: ${material ?? '—'}`, 14, footerY + 6);
+  doc.text(`${isFr ? 'Leçon préparée' : 'Lesson prepared'}: ${preparedLesson ?? '—'}`, 14, footerY + 12);
   const fileName = `attendance-${a.attendanceDate}-${(a.className || a.classId || 'class').replace(/\s+/g, '-')}.pdf`;
   doc.save(fileName);
 }
@@ -149,7 +170,7 @@ export function StaffMyAttendanceList() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedAttendance, setSelectedAttendance] = useState<AttendanceRow | null>(null);
-  const [details, setDetails] = useState<{ students: DetailStudent[] } | null>(null);
+  const [details, setDetails] = useState<{ students: DetailStudent[]; teacherName?: string | null; material?: string | null; preparedLesson?: string | null } | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   const load = async () => {
@@ -193,9 +214,14 @@ export function StaffMyAttendanceList() {
           rejectReason: s.rejectReason ?? s.reject_reason ?? null,
           address: s.address ?? null,
         }));
-        setDetails({ students });
+        setDetails({
+          students,
+          teacherName: d?.attendance?.teacherName ?? null,
+          material: d?.attendance?.material ?? null,
+          preparedLesson: d?.attendance?.preparedLesson ?? null,
+        });
       })
-      .catch(() => setDetails({ students: [] }))
+      .catch(() => setDetails({ students: [], teacherName: null, material: null, preparedLesson: null }))
       .finally(() => setDetailsLoading(false));
   }, [selectedAttendance?.id]);
 
@@ -403,7 +429,22 @@ export function StaffMyAttendanceList() {
                 })()}
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex flex-wrap gap-3 shrink-0">
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 shrink-0 space-y-3">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <dt className="text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Enseignant' : 'Teacher'}</dt>
+                  <dd className="font-medium text-gray-900 dark:text-white">{details?.teacherName ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Leçon assignée' : 'Lesson assigned'}</dt>
+                  <dd className="font-medium text-gray-900 dark:text-white">{details?.material ?? '—'}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Leçon préparée par l\'enseignant' : 'Lesson prepared by teacher'}</dt>
+                  <dd className="font-medium text-gray-900 dark:text-white mt-0.5">{details?.preparedLesson ?? '—'}</dd>
+                </div>
+              </dl>
+              <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => exportAttendanceCSV(selectedAttendance)}
@@ -417,7 +458,7 @@ export function StaffMyAttendanceList() {
                 onClick={() => {
                   const names = selectedAttendance.presentStudentNames?.length ? selectedAttendance.presentStudentNames : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—');
                   const list: DetailStudent[] = details?.students?.length ? details.students : names.map((name, i) => ({ studentId: selectedAttendance.presentStudentIds?.[i] ?? `fallback-${i}`, name: name || '—', present: true, requestStatus: null, comment: null, requestedAt: null, reviewedAt: null, rejectReason: null, address: null }));
-                  exportAttendancePDF(selectedAttendance, list, lang);
+                  exportAttendancePDF(selectedAttendance, list, lang, details?.teacherName, details?.material, details?.preparedLesson);
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
               >
@@ -429,7 +470,7 @@ export function StaffMyAttendanceList() {
                 onClick={() => {
                   const names = selectedAttendance.presentStudentNames?.length ? selectedAttendance.presentStudentNames : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—');
                   const list: DetailStudent[] = details?.students?.length ? details.students : names.map((name, i) => ({ studentId: selectedAttendance.presentStudentIds?.[i] ?? `fallback-${i}`, name: name || '—', present: true, requestStatus: null, comment: null, requestedAt: null, reviewedAt: null, rejectReason: null, address: null }));
-                  printAttendanceDetails(selectedAttendance, list, lang);
+                  printAttendanceDetails(selectedAttendance, list, lang, details?.teacherName, details?.material, details?.preparedLesson);
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
               >
@@ -443,6 +484,7 @@ export function StaffMyAttendanceList() {
               >
                 {lang === 'fr' ? 'Fermer' : 'Close'}
               </button>
+              </div>
             </div>
           </motion.div>
         </div>
