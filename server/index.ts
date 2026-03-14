@@ -3330,6 +3330,56 @@ app.get('/lecturer-attendance', async (c) => {
   }
 });
 
+app.get('/lecturer-attendance/:id/details', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const id = c.req.param('id');
+    const [att] = await db.select().from(lecturerAttendance).where(eq(lecturerAttendance.id, id));
+    if (!att) return c.json({ error: 'Not found' }, 404);
+    if (auth.role === 'staff' && att.staffId !== auth.userId) return c.json({ error: 'Forbidden' }, 403);
+    const enrolled = await db.select({
+      studentId: enrollments.studentId,
+      studentName: profiles.name,
+    }).from(enrollments).innerJoin(profiles, eq(enrollments.studentId, profiles.id))
+      .where(and(eq(enrollments.classId, att.classId), sql`${enrollments.status} IN ('active', 'pending')`))
+      .orderBy(asc(profiles.name));
+    const requestRows = await db.select().from(studentAttendanceRequests)
+      .where(and(eq(studentAttendanceRequests.classId, att.classId), eq(studentAttendanceRequests.requestDate, att.attendanceDate)));
+    const byProfileId = new Map(requestRows.map((r) => [r.profileId, r]));
+    const presentRequestIds = (Array.isArray((att as any).presentRequestIds) ? (att as any).presentRequestIds as string[] : []) as string[];
+    const requestRowsById = presentRequestIds.length > 0
+      ? await db.select().from(studentAttendanceRequests).where(inArray(studentAttendanceRequests.id, presentRequestIds))
+      : [];
+    const students = enrolled.map((e) => {
+      const byId = presentRequestIds.length > 0 ? requestRowsById.find((r) => r.profileId === e.studentId) : null;
+      const req = byId ?? byProfileId.get(e.studentId);
+      const requestStatus = req?.status ?? null;
+      return {
+        studentId: e.studentId,
+        name: e.studentName || e.studentId?.slice(0, 8) || '—',
+        present: requestStatus === 'approved',
+        requestId: req?.id ?? null,
+        requestStatus,
+        comment: req?.comment ?? null,
+        requestedAt: req?.requestedAt ?? null,
+        reviewedAt: req?.reviewedAt ?? null,
+        rejectReason: req?.rejectReason ?? null,
+        address: req?.address ?? null,
+      };
+    });
+    const [classRow] = await db.select({ name: programClasses.name, code: programClasses.code }).from(programClasses).where(eq(programClasses.id, att.classId));
+    const className = classRow ? (classRow.code || classRow.name || att.classId?.slice(0, 8) || '') : (att.classId?.slice(0, 8) || '');
+    return c.json({
+      attendance: { id: att.id, classId: att.classId, className, attendanceDate: att.attendanceDate, status: att.status, submittedAt: att.submittedAt },
+      students,
+    });
+  } catch (e) {
+    console.error('Lecturer attendance details error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 app.post('/lecturer-attendance', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
@@ -3345,15 +3395,17 @@ app.post('/lecturer-attendance', async (c) => {
       eq(studentAttendanceRequests.status, 'approved')
     );
     const approvedForSession = requestedIds.length > 0
-      ? await db.select({ profileId: studentAttendanceRequests.profileId }).from(studentAttendanceRequests).where(approvedWhere)
+      ? await db.select({ id: studentAttendanceRequests.id, profileId: studentAttendanceRequests.profileId }).from(studentAttendanceRequests).where(approvedWhere)
       : [];
     const presentStudentIds = approvedForSession.map((r) => r.profileId).filter((id) => requestSet.has(id));
+    const presentRequestIds = approvedForSession.filter((r) => requestSet.has(r.profileId)).map((r) => r.id);
     const [inserted] = await db.insert(lecturerAttendance).values({
       staffId: auth.userId,
       scheduleId: body.scheduleId ?? null,
       classId,
       attendanceDate,
       presentStudentIds,
+      presentRequestIds: presentRequestIds.length > 0 ? presentRequestIds : [],
       status: 'pending',
     }).returning();
     return c.json({ attendance: inserted });

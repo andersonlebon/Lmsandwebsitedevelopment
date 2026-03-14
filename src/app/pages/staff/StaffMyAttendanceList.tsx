@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ClipboardList, Loader2, CheckCircle, XCircle, Clock, Calendar, X, Download, Users } from 'lucide-react';
+import { ClipboardList, Loader2, CheckCircle, XCircle, Clock, Calendar, X, Download, Users, FileText, Printer } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 type AttendanceRow = {
   id: string;
@@ -13,6 +15,18 @@ type AttendanceRow = {
   submittedAt: string | null;
   presentStudentIds?: string[];
   presentStudentNames?: string[];
+};
+
+type DetailStudent = {
+  studentId: string;
+  name: string;
+  present: boolean;
+  requestStatus: string | null;
+  comment: string | null;
+  requestedAt: string | null;
+  reviewedAt: string | null;
+  rejectReason: string | null;
+  address: string | null;
 };
 
 function exportAttendanceCSV(a: AttendanceRow) {
@@ -37,6 +51,97 @@ function exportAttendanceCSV(a: AttendanceRow) {
   URL.revokeObjectURL(url);
 }
 
+function printAttendanceDetails(
+  a: AttendanceRow,
+  students: DetailStudent[],
+  lang: string
+) {
+  const isFr = lang === 'fr';
+  const statusLabel = a.status === 'approved' ? (isFr ? 'Approuvé' : 'Approved') : a.status === 'rejected' ? (isFr ? 'Rejeté' : 'Rejected') : (isFr ? 'En attente' : 'Pending');
+  const studentRows = students.map(s => [
+    s.name,
+    s.present ? (isFr ? 'Présent' : 'Present') : (isFr ? 'Absent' : 'Absent'),
+    s.comment ?? '—',
+  ]);
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>${isFr ? 'Détails de la présence' : 'Attendance details'}</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 20px; color: #111; }
+  h1 { font-size: 1.25rem; margin-bottom: 8px; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 16px; font-size: 14px; }
+  .meta dt { color: #666; } .meta dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #f5f5f5; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>${isFr ? 'Détails de la présence' : 'Attendance details'}</h1>
+  <dl class="meta">
+    <div><dt>${isFr ? 'Date' : 'Date'}</dt><dd>${a.attendanceDate}</dd></div>
+    <div><dt>${isFr ? 'Classe' : 'Class'}</dt><dd>${a.className || a.classId || '—'}</dd></div>
+    <div><dt>${isFr ? 'Statut' : 'Status'}</dt><dd>${statusLabel}</dd></div>
+    <div><dt>${isFr ? 'Soumis le' : 'Submitted'}</dt><dd>${a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}</dd></div>
+  </dl>
+  <table>
+    <thead><tr>
+      <th>${isFr ? 'Étudiant' : 'Student'}</th>
+      <th>${isFr ? 'Présent / Absent' : 'Present / Absent'}</th>
+      <th>${isFr ? 'Commentaire' : 'Comment'}</th>
+    </tr></thead>
+    <tbody>
+      ${studentRows.map(row => `<tr>${row.map(c => `<td>${String(c).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')}</tr>`).join('')}
+    </tbody>
+  </table>
+</body>
+</html>`;
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+    win.addEventListener('afterprint', () => win.close());
+  };
+}
+
+function exportAttendancePDF(
+  a: AttendanceRow,
+  students: DetailStudent[],
+  lang: string
+) {
+  const isFr = lang === 'fr';
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  doc.setTextColor(0, 0, 0);
+  const title = isFr ? 'Détails de la présence' : 'Attendance details';
+  doc.setFontSize(14);
+  doc.text(title, 14, 12);
+  doc.setFontSize(10);
+  doc.text(`${isFr ? 'Date' : 'Date'}: ${a.attendanceDate}  |  ${isFr ? 'Classe' : 'Class'}: ${a.className || a.classId || '—'}  |  ${isFr ? 'Statut' : 'Status'}: ${a.status}  |  ${isFr ? 'Soumis' : 'Submitted'}: ${a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}`, 14, 18);
+  const headers = [
+    isFr ? 'Étudiant' : 'Student',
+    isFr ? 'Présent/Absent' : 'Present/Absent',
+    isFr ? 'Commentaire' : 'Comment',
+  ];
+  const body = students.map(s => [
+    s.name,
+    s.present ? (isFr ? 'Présent' : 'Present') : (isFr ? 'Absent' : 'Absent'),
+    s.comment ?? '—',
+  ]);
+  autoTable(doc, {
+    head: [headers],
+    body,
+    startY: 22,
+    styles: { fontSize: 8, textColor: [0, 0, 0] },
+    headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
+  });
+  const fileName = `attendance-${a.attendanceDate}-${(a.className || a.classId || 'class').replace(/\s+/g, '-')}.pdf`;
+  doc.save(fileName);
+}
+
 export function StaffMyAttendanceList() {
   const { t, lang } = useLanguage();
   const [attendances, setAttendances] = useState<AttendanceRow[]>([]);
@@ -44,6 +149,8 @@ export function StaffMyAttendanceList() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedAttendance, setSelectedAttendance] = useState<AttendanceRow | null>(null);
+  const [details, setDetails] = useState<{ students: DetailStudent[] } | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -64,6 +171,33 @@ export function StaffMyAttendanceList() {
   useEffect(() => {
     load();
   }, [dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (!selectedAttendance?.id) {
+      setDetails(null);
+      return;
+    }
+    setDetailsLoading(true);
+    setDetails(null);
+    apiFetch(`/lecturer-attendance/${selectedAttendance.id}/details`, { requireAuth: true })
+      .then((d: any) => {
+        const raw = Array.isArray(d?.students) ? d.students : [];
+        const students: DetailStudent[] = raw.map((s: any) => ({
+          studentId: s.studentId ?? s.student_id ?? '',
+          name: s.name ?? s.studentName ?? '—',
+          present: s.present === true,
+          requestStatus: s.requestStatus ?? s.request_status ?? null,
+          comment: s.comment ?? null,
+          requestedAt: s.requestedAt ?? s.requested_at ?? null,
+          reviewedAt: s.reviewedAt ?? s.reviewed_at ?? null,
+          rejectReason: s.rejectReason ?? s.reject_reason ?? null,
+          address: s.address ?? null,
+        }));
+        setDetails({ students });
+      })
+      .catch(() => setDetails({ students: [] }))
+      .finally(() => setDetailsLoading(false));
+  }, [selectedAttendance?.id]);
 
   const statusBadge = (status: string) => {
     if (status === 'approved') return { icon: CheckCircle, className: 'bg-green-100 text-green-700 dark:bg-green-900/30', label: lang === 'fr' ? 'Approuvé' : 'Approved' };
@@ -168,7 +302,7 @@ export function StaffMyAttendanceList() {
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between shrink-0">
@@ -180,7 +314,7 @@ export function StaffMyAttendanceList() {
               </button>
             </div>
             <div className="px-6 py-4 space-y-4 overflow-auto flex-1 min-h-0">
-              <dl className="grid grid-cols-1 gap-2 text-sm">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 <div>
                   <dt className="text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Date' : 'Date'}</dt>
                   <dd className="font-medium text-gray-900 dark:text-white">{selectedAttendance.attendanceDate}</dd>
@@ -213,24 +347,60 @@ export function StaffMyAttendanceList() {
               <div>
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
                   <Users size={16} />
-                  {lang === 'fr' ? 'Étudiants présents' : 'Students who participated'}
+                  {lang === 'fr' ? 'Liste de présence des étudiants' : 'Student attendance list'}
                 </h3>
-                <ul className="rounded-xl border border-gray-100 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 max-h-48 overflow-auto">
-                  {(selectedAttendance.presentStudentNames && selectedAttendance.presentStudentNames.length > 0
+                {(() => {
+                  const names = selectedAttendance.presentStudentNames && selectedAttendance.presentStudentNames.length > 0
                     ? selectedAttendance.presentStudentNames
-                    : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—')
-                  ).map((name, idx) => (
-                    <li key={idx} className="px-4 py-2.5 text-sm text-gray-900 dark:text-white">
-                      {name || (lang === 'fr' ? '—' : '—')}
-                    </li>
-                  ))}
-                  {(!selectedAttendance.presentStudentNames || selectedAttendance.presentStudentNames.length === 0) &&
-                    (!selectedAttendance.presentStudentIds || selectedAttendance.presentStudentIds.length === 0) && (
-                    <li className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 italic">
-                      {lang === 'fr' ? 'Aucun étudiant listé.' : 'No students listed.'}
-                    </li>
-                  )}
-                </ul>
+                    : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—');
+                  const displayStudents: DetailStudent[] = details && details.students.length > 0
+                    ? details.students
+                    : names.map((name, i) => ({
+                        studentId: selectedAttendance.presentStudentIds?.[i] ?? `fallback-${i}`,
+                        name: name || '—',
+                        present: true,
+                        requestStatus: null,
+                        comment: null,
+                        requestedAt: null,
+                        reviewedAt: null,
+                        rejectReason: null,
+                        address: null,
+                      }));
+                  return (
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-600 overflow-x-auto bg-white dark:bg-gray-800">
+                      <table className="w-full text-left text-sm min-w-[320px] text-gray-900 dark:text-gray-100">
+                        <thead>
+                          <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-600">
+                            <th className="px-3 py-2.5 font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Étudiant' : 'Student'}</th>
+                            <th className="px-3 py-2.5 font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Présent / Absent' : 'Present / Absent'}</th>
+                            <th className="px-3 py-2.5 font-medium text-gray-700 dark:text-gray-300">{lang === 'fr' ? 'Commentaire' : 'Comment'}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailsLoading ? (
+                            <tr><td colSpan={3} className="px-3 py-8 text-center text-gray-500 dark:text-gray-400"><Loader2 size={24} className="animate-spin inline-block" /></td></tr>
+                          ) : displayStudents.length === 0 ? (
+                            <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Aucun étudiant inscrit.' : 'No students enrolled.'}</td></tr>
+                          ) : (
+                            displayStudents.map((s) => (
+                              <tr key={s.studentId} className="border-b border-gray-100 dark:border-gray-700 last:border-0 align-top">
+                                <td className="px-3 py-2.5 font-medium text-gray-900 dark:text-white">{s.name}</td>
+                                <td className="px-3 py-2.5 text-gray-900 dark:text-white">
+                                  {s.present ? (
+                                    <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs font-medium"><CheckCircle size={14} /> {lang === 'fr' ? 'Présent' : 'Present'}</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-medium"><XCircle size={14} /> {lang === 'fr' ? 'Absent' : 'Absent'}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 max-w-[280px] break-words text-xs">{s.comment ?? '—'}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex flex-wrap gap-3 shrink-0">
@@ -240,7 +410,31 @@ export function StaffMyAttendanceList() {
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 <Download size={18} />
-                {lang === 'fr' ? 'Exporter la liste (CSV)' : 'Export list (CSV)'}
+                {lang === 'fr' ? 'Exporter (CSV)' : 'Export (CSV)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const names = selectedAttendance.presentStudentNames?.length ? selectedAttendance.presentStudentNames : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—');
+                  const list: DetailStudent[] = details?.students?.length ? details.students : names.map((name, i) => ({ studentId: selectedAttendance.presentStudentIds?.[i] ?? `fallback-${i}`, name: name || '—', present: true, requestStatus: null, comment: null, requestedAt: null, reviewedAt: null, rejectReason: null, address: null }));
+                  exportAttendancePDF(selectedAttendance, list, lang);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                <FileText size={18} />
+                {lang === 'fr' ? 'Exporter (PDF)' : 'Export (PDF)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const names = selectedAttendance.presentStudentNames?.length ? selectedAttendance.presentStudentNames : (selectedAttendance.presentStudentIds || []).map(id => id?.slice(0, 8) || '—');
+                  const list: DetailStudent[] = details?.students?.length ? details.students : names.map((name, i) => ({ studentId: selectedAttendance.presentStudentIds?.[i] ?? `fallback-${i}`, name: name || '—', present: true, requestStatus: null, comment: null, requestedAt: null, reviewedAt: null, rejectReason: null, address: null }));
+                  printAttendanceDetails(selectedAttendance, list, lang);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                <Printer size={18} />
+                {lang === 'fr' ? 'Imprimer' : 'Print'}
               </button>
               <button
                 type="button"

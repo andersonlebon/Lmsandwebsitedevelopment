@@ -148,13 +148,6 @@ export function StaffAttendance() {
     setAttendance(prev => ({ ...prev, [studentId]: status }));
   };
 
-  const markAllPresent = () => {
-    if (!session) return;
-    const all: Record<string, string> = {};
-    session.students.forEach(s => { all[s.studentId] = s.requestStatus === 'approved' ? 'present' : 'absent'; });
-    setAttendance(all);
-  };
-
   const handleRequestAction = async (requestId: string, status: 'approved' | 'rejected', studentId: string, rejectReason?: string) => {
     setRequestActionLoading(requestId);
     try {
@@ -343,7 +336,7 @@ export function StaffAttendance() {
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col"
+            className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-xl max-w-2xl w-full min-h-[70vh] max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-3 shrink-0">
@@ -352,11 +345,14 @@ export function StaffAttendance() {
               <span className="font-semibold text-gray-900 dark:text-white text-sm">{selectedSlot.className || selectedSlot.programName}</span>
               <span className="text-xs text-gray-400">{attendanceDate}</span>
             </div>
-            <div className="flex items-center gap-3">
-              <button onClick={markAllPresent} className="text-xs font-medium px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 hover:bg-green-100 transition-colors">
-                {lang === 'fr' ? 'Tous présents' : 'Mark all present'}
-              </button>
-              {session && <span className="text-xs text-gray-400">{presentCount}/{session.students.length}</span>}
+            <div className="flex items-center gap-3 flex-wrap">
+              {session && session.students.length > 0 && (
+                <div className="flex gap-3 text-xs">
+                  <span className="flex items-center gap-1 text-green-600 dark:text-green-400"><CheckCircle size={14} /> {presentCount} {t('att.present')}</span>
+                  <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400"><Clock size={14} /> {Object.values(attendance).filter(v => v === 'late').length} {t('att.late')}</span>
+                  <span className="flex items-center gap-1 text-red-600 dark:text-red-400"><XCircle size={14} /> {Object.values(attendance).filter(v => v === 'absent').length} {t('att.absent')}</span>
+                </div>
+              )}
               <button type="button" onClick={() => { setSelectedSlot(null); setSession(null); }} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500" aria-label="Close">
                 <X size={20} />
               </button>
@@ -439,31 +435,6 @@ export function StaffAttendance() {
                   </motion.div>
                 ))}
               </div>
-              <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
-                <div className="flex gap-4 text-xs text-gray-400 mb-3">
-                  <span className="flex items-center gap-1"><CheckCircle size={12} className="text-green-500" /> {presentCount} {t('att.present')}</span>
-                  <span className="flex items-center gap-1"><Clock size={12} className="text-yellow-500" /> {Object.values(attendance).filter(v => v === 'late').length} {t('att.late')}</span>
-                  <span className="flex items-center gap-1"><XCircle size={12} className="text-red-500" /> {Object.values(attendance).filter(v => v === 'absent').length} {t('att.absent')}</span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md">
-                    {lang === 'fr'
-                      ? "Consultez la liste, approuvez ou rejetez les demandes soumises, marquez présents/tardifs/absents, puis soumettez à l'admin pour validation."
-                      : 'View the list, approve or reject submitted requests, mark present/late/absent, then submit to admin for validation.'}
-                  </p>
-                  <button
-                    onClick={handleSubmitToAdmin}
-                    disabled={submitToAdminLoading}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all shrink-0 ${submitSuccess ? 'bg-green-600' : ''}`}
-                    style={!submitSuccess ? { background: 'var(--btc-primary,#2563eb)' } : {}}
-                  >
-                    {submitToAdminLoading ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
-                    {submitSuccess
-                      ? (lang === 'fr' ? 'Envoyé !' : 'Submitted!')
-                      : (lang === 'fr' ? 'Soumettre la présence pour paiement' : 'Submit attendance for payment')}
-                  </button>
-                </div>
-              </div>
             </>
           ) : session ? (
             <div className="px-6 py-12 text-center text-gray-400 text-sm">
@@ -476,6 +447,26 @@ export function StaffAttendance() {
             </div>
           ) : null}
           </div>
+          {session && session.students.length > 0 && (
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 shrink-0">
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mb-3">
+                {lang === 'fr'
+                  ? "Consultez la liste, approuvez ou rejetez les demandes soumises, marquez présents/tardifs/absents, puis soumettez à l'admin pour validation."
+                  : 'View the list, approve or reject submitted requests, mark present/late/absent, then submit to admin for validation.'}
+              </p>
+              <button
+                onClick={handleSubmitToAdmin}
+                disabled={submitToAdminLoading}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all shrink-0 ${submitSuccess ? 'bg-green-600' : ''}`}
+                style={!submitSuccess ? { background: 'var(--btc-primary,#2563eb)' } : {}}
+              >
+                {submitToAdminLoading ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
+                {submitSuccess
+                  ? (lang === 'fr' ? 'Envoyé !' : 'Submitted!')
+                  : (lang === 'fr' ? 'Soumettre la présence pour paiement' : 'Submit attendance for payment')}
+              </button>
+            </div>
+          )}
           </motion.div>
         </div>
       )}

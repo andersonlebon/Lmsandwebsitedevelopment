@@ -346,6 +346,7 @@ export const lecturerAttendance = pgTable('lecturer_attendance', {
   approvedAt: timestamptz('approved_at'),
   rejectReason: text('reject_reason'),
   presentStudentIds: jsonb('present_student_ids').default([]), // student IDs who participated (for admin review)
+  presentRequestIds: jsonb('present_request_ids').default([]), // student_attendance_request IDs (to get comment etc.)
   createdAt: timestamptz('created_at').defaultNow(),
 });
 
