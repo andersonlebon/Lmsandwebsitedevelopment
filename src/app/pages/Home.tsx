@@ -304,6 +304,7 @@ export function Home() {
 
   const heroTexts = [
     { line1: t('hero.line1_1'), line2: t('hero.line2_1') },
+    { line1: t('hero.line1_2'), line2: t('hero.line2_2') },
     { line1: t('hero.line1_3'), line2: t('hero.line2_3') },
   ];
 
@@ -389,8 +390,8 @@ export function Home() {
                 className="text-white mb-4"
                 style={{ fontFamily: 'Poppins', fontSize: 'clamp(2.5rem, 6vw, 4.5rem)', lineHeight: 1.15, fontWeight: 800 }}
               >
-                {heroTexts[heroIndex].line1}<br />
-                <span style={{ color: 'var(--btc-primary-light, #4ade80)' }}>{heroTexts[heroIndex].line2}</span>
+                {heroTexts[heroIndex % heroTexts.length]?.line1}<br />
+                <span style={{ color: 'var(--btc-primary-light, #4ade80)' }}>{heroTexts[heroIndex % heroTexts.length]?.line2}</span>
               </motion.h1>
             </AnimatePresence>
 
