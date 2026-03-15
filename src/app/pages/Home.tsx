@@ -171,33 +171,30 @@ function HeroVectorBg() {
         />
       ))}
       {/* SVG vector lines & curves */}
-      <svg
-        className="absolute inset-0 w-full h-full opacity-50"
+      <motion.svg
+        className="absolute inset-0 w-full h-full opacity-40"
         viewBox="0 0 1200 800"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
           <linearGradient id="heroLineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#4ade80" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.06" />
+            <stop offset="0%" stopColor="#4ade80" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.05" />
           </linearGradient>
         </defs>
-        {[
-          [100, 0, 150, 800], [400, 0, 380, 800], [700, 0, 720, 800], [1000, 0, 980, 800],
-          [0, 150, 1200, 120], [0, 350, 1200, 380], [0, 550, 1200, 520], [0, 720, 1200, 750],
-          [50, 0, 200, 800], [300, 0, 250, 800], [550, 0, 600, 800], [850, 0, 900, 800], [1100, 0, 1050, 800],
-        ].map(([x1, y1, x2, y2], i) => (
+        {[...Array(18)].map((_, i) => (
           <motion.line
-            key={`line-${i}`}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
+            key={`l-${i}`}
+            x1={Math.random() * 1200}
+            y1={0}
+            x2={Math.random() * 1200}
+            y2={800}
             stroke="url(#heroLineGrad)"
             strokeWidth="0.5"
-            animate={{ opacity: [0.08, 0.22, 0.08] }}
-            transition={{ duration: 4 + (i % 3), repeat: Infinity, ease: 'easeInOut', delay: i * 0.15 }}
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: [0.1, 0.25, 0.1] }}
+            transition={{ duration: 4 + i * 0.3, repeat: Infinity, delay: i * 0.2 }}
           />
         ))}
         {[
@@ -210,15 +207,15 @@ function HeroVectorBg() {
           { cx: 800, cy: 580, r: 90 },
         ].map((c, i) => (
           <motion.circle
-            key={`circle-${i}`}
+            key={`c-${i}`}
             cx={c.cx}
             cy={c.cy}
             r={c.r}
             stroke="url(#heroLineGrad)"
             strokeWidth="0.4"
             fill="none"
-            animate={{ opacity: [0.06, 0.16, 0.06] }}
-            transition={{ duration: 5 + i * 0.5, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+            animate={{ opacity: [0.06, 0.14, 0.06], scale: [1, 1.02, 1] }}
+            transition={{ duration: 5 + i, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
           />
         ))}
         {[
@@ -230,16 +227,17 @@ function HeroVectorBg() {
           'M 1000 0 V 800',
         ].map((d, i) => (
           <motion.path
-            key={`path-${i}`}
+            key={`p-${i}`}
             d={d}
-            stroke="rgba(74, 222, 128, 0.1)"
+            stroke="rgba(74, 222, 128, 0.08)"
             strokeWidth="0.5"
             fill="none"
-            animate={{ opacity: [0.05, 0.14, 0.05] }}
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: [0, 1, 0], opacity: [0.05, 0.12, 0.05] }}
             transition={{ duration: 8 + i, repeat: Infinity, ease: 'easeInOut', delay: i * 0.5 }}
           />
         ))}
-      </svg>
+      </motion.svg>
     </div>
   );
 }
@@ -306,7 +304,6 @@ export function Home() {
 
   const heroTexts = [
     { line1: t('hero.line1_1'), line2: t('hero.line2_1') },
-    { line1: t('hero.line1_2'), line2: t('hero.line2_2') },
     { line1: t('hero.line1_3'), line2: t('hero.line2_3') },
   ];
 
@@ -328,8 +325,6 @@ export function Home() {
           <img src={teacherImg} alt="BTC" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-br from-black/90 via-black/80 to-green-950/70" />
         </div>
-
-        <HeroVectorBg />
 
         {[...Array(5)].map((_, i) => (
           <motion.div

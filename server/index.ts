@@ -174,6 +174,13 @@ async function requireAdmin(c: any): Promise<{ userId: string } | Response> {
   return { userId: auth.userId };
 }
 
+async function requireAdminOrStaff(c: any): Promise<{ userId: string; role: string } | Response> {
+  const auth = await authenticateUser(c.req.header('Authorization'));
+  if (!auth) return c.json({ error: 'Unauthorized - invalid or missing token. Please log out and log back in.' }, 401);
+  if (auth.role !== 'admin' && auth.role !== 'staff') return c.json({ error: `Forbidden - admin or staff required (role: ${auth.role})` }, 403);
+  return { userId: auth.userId, role: auth.role };
+}
+
 // GET /me — current user profile (auth required)
 app.get('/me', async (c) => {
   try {
@@ -2055,8 +2062,8 @@ app.get('/enrollments/:id/activities', async (c) => {
 // ──────────────────────────────────────
 app.get('/learning-activities', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const programId = c.req.query('programId');
     const promotionId = c.req.query('promotionId');
     const type = c.req.query('type');
@@ -2070,6 +2077,7 @@ app.get('/learning-activities', async (c) => {
       requiresSubmission: learningActivities.requiresSubmission,
       maxScore: learningActivities.maxScore,
       createdAt: learningActivities.createdAt,
+      createdBy: learningActivities.createdBy,
       progName: programs.name,
       progNameFr: programs.nameFr,
     }).from(learningActivities).leftJoin(programs, eq(learningActivities.programId, programs.id)).orderBy(desc(learningActivities.createdAt));
@@ -2086,6 +2094,7 @@ app.get('/learning-activities', async (c) => {
       requiresSubmission: r.requiresSubmission,
       maxScore: r.maxScore != null ? Number(r.maxScore) : 0,
       createdAt: r.createdAt,
+      ...(auth.role === 'staff' && r.createdBy ? { createdBy: r.createdBy } : {}),
     }));
     if (programId) list = list.filter((a) => a.programId === programId);
     if (type) list = list.filter((a) => a.type === type);
@@ -2103,8 +2112,8 @@ app.get('/learning-activities', async (c) => {
 
 app.post('/learning-activities', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const body = await c.req.json();
     const [inserted] = await db.insert(learningActivities).values({
       type: (body.type || 'exercise') as 'exercise' | 'assessment' | 'assignment',
@@ -2115,7 +2124,7 @@ app.post('/learning-activities', async (c) => {
       instructions: body.instructions ?? '',
       instructionsFr: body.instructionsFr ?? '',
       programId: body.programId || null,
-      createdBy: (admin as any).userId,
+      createdBy: auth.userId,
       requiresSubmission: !!body.requiresSubmission,
       maxScore: body.maxScore != null ? String(body.maxScore) : '0',
       sortOrder: body.sortOrder ?? 0,
@@ -2135,7 +2144,8 @@ app.get('/learning-activities/:id', async (c) => {
     const [act] = await db.select().from(learningActivities).where(eq(learningActivities.id, id));
     if (!act) return c.json({ error: 'Activity not found' }, 404);
     const isAdmin = auth.role === 'admin';
-    if (!isAdmin) {
+    const isStaff = auth.role === 'staff';
+    if (!isAdmin && !isStaff) {
       const myEnrollments = await db.select({ promotionId: enrollments.promotionId, classId: enrollments.classId }).from(enrollments).where(eq(enrollments.studentId, auth.userId));
       const myPromoIds = new Set(myEnrollments.map((e) => e.promotionId).filter(Boolean));
       const myClassIds = new Set(myEnrollments.map((e) => e.classId).filter(Boolean));
@@ -2160,6 +2170,7 @@ app.get('/learning-activities/:id', async (c) => {
       })),
     };
     if (isAdmin) (payload as any).promotionIds = promoLinks.map((p) => p.promotionId);
+    if (isStaff) (payload as any).createdBy = act.createdBy;
     return c.json(payload);
   } catch (e) {
     console.error('Get learning activity error:', e);
@@ -2169,9 +2180,12 @@ app.get('/learning-activities/:id', async (c) => {
 
 app.put('/learning-activities/:id', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
+    const [existing] = await db.select({ createdBy: learningActivities.createdBy }).from(learningActivities).where(eq(learningActivities.id, id));
+    if (!existing) return c.json({ error: 'Activity not found' }, 404);
+    if (auth.role === 'staff' && existing.createdBy !== auth.userId) return c.json({ error: 'You can only edit activities you created' }, 403);
     const body = await c.req.json();
     const [updated] = await db.update(learningActivities).set({
       type: body.type ?? undefined,
@@ -2197,9 +2211,12 @@ app.put('/learning-activities/:id', async (c) => {
 
 app.delete('/learning-activities/:id', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
+    const [existing] = await db.select({ createdBy: learningActivities.createdBy }).from(learningActivities).where(eq(learningActivities.id, id));
+    if (!existing) return c.json({ error: 'Activity not found' }, 404);
+    if (auth.role === 'staff' && existing.createdBy !== auth.userId) return c.json({ error: 'You can only delete activities you created' }, 403);
     const subIds = await db.select({ id: activitySubmissions.id }).from(activitySubmissions).where(eq(activitySubmissions.activityId, id));
     if (subIds.length > 0) {
       await db.delete(activitySubmissionResponses).where(inArray(activitySubmissionResponses.submissionId, subIds.map((s) => s.id)));
@@ -2208,6 +2225,7 @@ app.delete('/learning-activities/:id', async (c) => {
     await db.delete(activityItems).where(eq(activityItems.activityId, id));
     await db.delete(activityPromotions).where(eq(activityPromotions.activityId, id));
     await db.delete(activityClasses).where(eq(activityClasses.activityId, id));
+    await db.delete(activityStaffSchedules).where(eq(activityStaffSchedules.activityId, id));
     const result = await db.delete(learningActivities).where(eq(learningActivities.id, id)).returning({ id: learningActivities.id });
     if (result.length === 0) return c.json({ error: 'Activity not found' }, 404);
     return c.json({ success: true });
@@ -2222,7 +2240,7 @@ app.get('/learning-activities/:id/items', async (c) => {
     const auth = await authenticateUser(c.req.header('Authorization'));
     if (!auth) return c.json({ error: 'Unauthorized' }, 401);
     const id = c.req.param('id');
-    if (auth.role !== 'admin') {
+    if (auth.role !== 'admin' && auth.role !== 'staff') {
       const myEnrollments = await db.select({ promotionId: enrollments.promotionId, classId: enrollments.classId }).from(enrollments).where(eq(enrollments.studentId, auth.userId));
       const myPromoIds = new Set(myEnrollments.map((e) => e.promotionId).filter(Boolean));
       const myClassIds = new Set(myEnrollments.map((e) => e.classId).filter(Boolean));
@@ -2241,9 +2259,12 @@ app.get('/learning-activities/:id/items', async (c) => {
 
 app.post('/learning-activities/:id/items', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
+    const [act] = await db.select({ createdBy: learningActivities.createdBy }).from(learningActivities).where(eq(learningActivities.id, id));
+    if (!act) return c.json({ error: 'Activity not found' }, 404);
+    if (auth.role === 'staff' && act.createdBy !== auth.userId) return c.json({ error: 'You can only add items to activities you created' }, 403);
     const body = await c.req.json();
     const [inserted] = await db.insert(activityItems).values({
       activityId: id,
@@ -2267,9 +2288,12 @@ app.post('/learning-activities/:id/items', async (c) => {
 
 app.put('/learning-activities/:activityId/items/:itemId', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const activityId = c.req.param('activityId');
+    const [act] = await db.select({ createdBy: learningActivities.createdBy }).from(learningActivities).where(eq(learningActivities.id, activityId));
+    if (!act) return c.json({ error: 'Activity not found' }, 404);
+    if (auth.role === 'staff' && act.createdBy !== auth.userId) return c.json({ error: 'You can only edit items in activities you created' }, 403);
     const itemId = c.req.param('itemId');
     const body = await c.req.json();
     const [updated] = await db.update(activityItems).set({
@@ -2295,9 +2319,12 @@ app.put('/learning-activities/:activityId/items/:itemId', async (c) => {
 
 app.delete('/learning-activities/:activityId/items/:itemId', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const activityId = c.req.param('activityId');
+    const [act] = await db.select({ createdBy: learningActivities.createdBy }).from(learningActivities).where(eq(learningActivities.id, activityId));
+    if (!act) return c.json({ error: 'Activity not found' }, 404);
+    if (auth.role === 'staff' && act.createdBy !== auth.userId) return c.json({ error: 'You can only delete items from activities you created' }, 403);
     const itemId = c.req.param('itemId');
     const result = await db.delete(activityItems).where(and(eq(activityItems.id, itemId), eq(activityItems.activityId, activityId))).returning({ id: activityItems.id });
     if (result.length === 0) return c.json({ error: 'Item not found' }, 404);
@@ -2409,8 +2436,8 @@ app.delete('/learning-activities/:id/classes/:classId', async (c) => {
 // ─── Activity ↔ Class event (staff_schedule slot) ───────────────────────
 app.get('/learning-activities/:id/schedules', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
     const rows = await db.select({
       scheduleId: activityStaffSchedules.scheduleId,
@@ -2440,17 +2467,21 @@ app.get('/learning-activities/:id/schedules', async (c) => {
 
 app.post('/learning-activities/:id/schedules', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
     const body = await c.req.json();
     const scheduleId = body.scheduleId;
     if (!scheduleId) return c.json({ error: 'scheduleId required' }, 400);
+    if (auth.role === 'staff') {
+      const [sched] = await db.select({ id: staffSchedules.id }).from(staffSchedules).where(and(eq(staffSchedules.id, scheduleId), eq(staffSchedules.staffId, auth.userId)));
+      if (!sched) return c.json({ error: 'You can only assign to your own class events (schedule slots)' }, 403);
+    }
     await db.insert(activityStaffSchedules).values({
       activityId: id,
       scheduleId,
       sortOrder: body.sortOrder ?? 0,
-      assignedBy: admin.userId,
+      assignedBy: auth.userId,
     }).onConflictDoNothing({ target: [activityStaffSchedules.activityId, activityStaffSchedules.scheduleId] });
     const [row] = await db.select().from(activityStaffSchedules).where(and(eq(activityStaffSchedules.activityId, id), eq(activityStaffSchedules.scheduleId, scheduleId)));
     return c.json({ assigned: row });
@@ -2462,10 +2493,14 @@ app.post('/learning-activities/:id/schedules', async (c) => {
 
 app.delete('/learning-activities/:id/schedules/:scheduleId', async (c) => {
   try {
-    const admin = await requireAdmin(c);
-    if (admin instanceof Response) return admin;
+    const auth = await requireAdminOrStaff(c);
+    if (auth instanceof Response) return auth;
     const id = c.req.param('id');
     const scheduleId = c.req.param('scheduleId');
+    if (auth.role === 'staff') {
+      const [sched] = await db.select({ id: staffSchedules.id }).from(staffSchedules).where(and(eq(staffSchedules.id, scheduleId), eq(staffSchedules.staffId, auth.userId)));
+      if (!sched) return c.json({ error: 'You can only unassign from your own class events' }, 403);
+    }
     await db.delete(activityStaffSchedules).where(and(eq(activityStaffSchedules.activityId, id), eq(activityStaffSchedules.scheduleId, scheduleId)));
     return c.json({ ok: true });
   } catch (e) {
@@ -2976,6 +3011,57 @@ app.get('/staff/my-schedule/week', async (c) => {
     return c.json({ weekStart, slots: rows });
   } catch (e) {
     console.error('Staff my schedule week error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// Staff: my schedule slots for the next N weeks (for assigning activities to class events)
+app.get('/staff/my-schedule/slots', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const weeks = Math.min(Number(c.req.query('weeks')) || 4, 12);
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1));
+    const allSlots: { scheduleId: string; weekStart: string; dayOfWeek: number; startTime: string; endTime: string; room: string | null; lessonTitle: string | null; className: string; classCode: string | null }[] = [];
+    for (let w = 0; w < weeks; w++) {
+      const weekStart = new Date(monday);
+      weekStart.setDate(monday.getDate() + w * 7);
+      const weekStr = weekStart.toISOString().slice(0, 10);
+      const rows = await db
+        .select({
+          id: staffSchedules.id,
+          weekStart: staffSchedules.weekStart,
+          dayOfWeek: staffSchedules.dayOfWeek,
+          startTime: staffSchedules.startTime,
+          endTime: staffSchedules.endTime,
+          room: staffSchedules.room,
+          lessonTitle: staffSchedules.lessonTitle,
+          className: programClasses.name,
+          classCode: programClasses.code,
+        })
+        .from(staffSchedules)
+        .innerJoin(programClasses, eq(staffSchedules.classId, programClasses.id))
+        .where(and(eq(staffSchedules.staffId, auth.userId), eq(staffSchedules.weekStart, weekStr)))
+        .orderBy(asc(staffSchedules.dayOfWeek), asc(staffSchedules.startTime));
+      for (const r of rows) {
+        allSlots.push({
+          scheduleId: r.id,
+          weekStart: r.weekStart,
+          dayOfWeek: r.dayOfWeek,
+          startTime: r.startTime,
+          endTime: r.endTime,
+          room: r.room,
+          lessonTitle: r.lessonTitle,
+          className: r.className,
+          classCode: r.classCode,
+        });
+      }
+    }
+    return c.json({ slots: allSlots });
+  } catch (e) {
+    console.error('Staff my schedule slots error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });
