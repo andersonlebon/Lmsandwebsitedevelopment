@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { eq, asc, desc, inArray, and, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
-import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, promotionClasses, exchangeRates, learningActivities, activityPromotions, activityClasses, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
+import { db, programs, departments, profiles, promotions, enrollments, enrollmentProgress, feeStructures, programFees, promotionPrograms, promotionClasses, exchangeRates, learningActivities, activityPromotions, activityClasses, activityStaffSchedules, activityItems, activitySubmissions, activitySubmissionResponses, payments, programClasses, studentAttendanceRequests, staffSchedules, lecturerAttendance, lecturerRates, lecturerWallets, lecturerWalletTransactions, certificates, lessons } from '../database/db/index';
 
 const app = new Hono();
 // Use same key as frontend when set (no duplicate SUPABASE_URL in .env)
@@ -1954,7 +1954,7 @@ app.patch('/enrollments/:id/progress', async (c) => {
   }
 });
 
-// GET /enrollments/:id/activities — student (own enrollment): list activities assigned to promotion OR to enrollment's class
+// GET /enrollments/:id/activities — student (own enrollment): activities from class events (staff_schedules for this class); fallback to promotion/class
 app.get('/enrollments/:id/activities', async (c) => {
   try {
     const auth = await authenticateUser(c.req.header('Authorization'));
@@ -1964,23 +1964,9 @@ app.get('/enrollments/:id/activities', async (c) => {
     if (!en) return c.json({ error: 'Enrollment not found' }, 404);
     if (en.studentId !== auth.userId) return c.json({ error: 'Forbidden' }, 403);
     const activityRows: { id: string; type: any; title: string | null; titleFr: string | null; description: string | null; descriptionFr: string | null; maxScore: any; requiresSubmission: boolean | null }[] = [];
-    if (en.promotionId) {
-      const fromPromo = await db.select({
-        id: learningActivities.id,
-        type: learningActivities.type,
-        title: learningActivities.title,
-        titleFr: learningActivities.titleFr,
-        description: learningActivities.description,
-        descriptionFr: learningActivities.descriptionFr,
-        maxScore: learningActivities.maxScore,
-        requiresSubmission: learningActivities.requiresSubmission,
-      }).from(activityPromotions)
-        .innerJoin(learningActivities, eq(activityPromotions.activityId, learningActivities.id))
-        .where(eq(activityPromotions.promotionId, en.promotionId));
-      activityRows.push(...fromPromo);
-    }
+    // Primary: activities assigned to class events (staff_schedules) for this enrollment's class
     if (en.classId) {
-      const fromClass = await db.select({
+      const fromClassEvents = await db.select({
         id: learningActivities.id,
         type: learningActivities.type,
         title: learningActivities.title,
@@ -1989,11 +1975,48 @@ app.get('/enrollments/:id/activities', async (c) => {
         descriptionFr: learningActivities.descriptionFr,
         maxScore: learningActivities.maxScore,
         requiresSubmission: learningActivities.requiresSubmission,
-      }).from(activityClasses)
-        .innerJoin(learningActivities, eq(activityClasses.activityId, learningActivities.id))
-        .where(eq(activityClasses.classId, en.classId));
-      const seen = new Set(activityRows.map((r) => r.id));
-      for (const r of fromClass) if (!seen.has(r.id)) { seen.add(r.id); activityRows.push(r); }
+      }).from(activityStaffSchedules)
+        .innerJoin(staffSchedules, eq(activityStaffSchedules.scheduleId, staffSchedules.id))
+        .innerJoin(learningActivities, eq(activityStaffSchedules.activityId, learningActivities.id))
+        .where(eq(staffSchedules.classId, en.classId));
+      const seen = new Set<string>();
+      for (const r of fromClassEvents) {
+        if (!seen.has(r.id)) { seen.add(r.id); activityRows.push(r); }
+      }
+    }
+    // Fallback: if no class-event assignments, use promotion/class (backward compat)
+    if (activityRows.length === 0) {
+      if (en.promotionId) {
+        const fromPromo = await db.select({
+          id: learningActivities.id,
+          type: learningActivities.type,
+          title: learningActivities.title,
+          titleFr: learningActivities.titleFr,
+          description: learningActivities.description,
+          descriptionFr: learningActivities.descriptionFr,
+          maxScore: learningActivities.maxScore,
+          requiresSubmission: learningActivities.requiresSubmission,
+        }).from(activityPromotions)
+          .innerJoin(learningActivities, eq(activityPromotions.activityId, learningActivities.id))
+          .where(eq(activityPromotions.promotionId, en.promotionId));
+        activityRows.push(...fromPromo);
+      }
+      if (en.classId) {
+        const fromClass = await db.select({
+          id: learningActivities.id,
+          type: learningActivities.type,
+          title: learningActivities.title,
+          titleFr: learningActivities.titleFr,
+          description: learningActivities.description,
+          descriptionFr: learningActivities.descriptionFr,
+          maxScore: learningActivities.maxScore,
+          requiresSubmission: learningActivities.requiresSubmission,
+        }).from(activityClasses)
+          .innerJoin(learningActivities, eq(activityClasses.activityId, learningActivities.id))
+          .where(eq(activityClasses.classId, en.classId));
+        const seen = new Set(activityRows.map((r) => r.id));
+        for (const r of fromClass) if (!seen.has(r.id)) { seen.add(r.id); activityRows.push(r); }
+      }
     }
     const activityIds = activityRows.map((r) => r.id);
     const submissions = activityIds.length === 0 ? [] : await db.select({
@@ -2383,6 +2406,74 @@ app.delete('/learning-activities/:id/classes/:classId', async (c) => {
   }
 });
 
+// ─── Activity ↔ Class event (staff_schedule slot) ───────────────────────
+app.get('/learning-activities/:id/schedules', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const rows = await db.select({
+      scheduleId: activityStaffSchedules.scheduleId,
+      sortOrder: activityStaffSchedules.sortOrder,
+      assignedAt: activityStaffSchedules.assignedAt,
+      weekStart: staffSchedules.weekStart,
+      dayOfWeek: staffSchedules.dayOfWeek,
+      startTime: staffSchedules.startTime,
+      endTime: staffSchedules.endTime,
+      room: staffSchedules.room,
+      lessonTitle: staffSchedules.lessonTitle,
+      className: programClasses.name,
+      classCode: programClasses.code,
+      staffName: profiles.name,
+    }).from(activityStaffSchedules)
+      .innerJoin(staffSchedules, eq(activityStaffSchedules.scheduleId, staffSchedules.id))
+      .innerJoin(programClasses, eq(staffSchedules.classId, programClasses.id))
+      .leftJoin(profiles, eq(staffSchedules.staffId, profiles.id))
+      .where(eq(activityStaffSchedules.activityId, id))
+      .orderBy(asc(staffSchedules.weekStart), asc(staffSchedules.dayOfWeek), asc(staffSchedules.startTime));
+    return c.json({ schedules: rows.map((r) => ({ ...r, sortOrder: r.sortOrder ?? 0 })) });
+  } catch (e) {
+    console.error('List activity schedules error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.post('/learning-activities/:id/schedules', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const scheduleId = body.scheduleId;
+    if (!scheduleId) return c.json({ error: 'scheduleId required' }, 400);
+    await db.insert(activityStaffSchedules).values({
+      activityId: id,
+      scheduleId,
+      sortOrder: body.sortOrder ?? 0,
+      assignedBy: admin.userId,
+    }).onConflictDoNothing({ target: [activityStaffSchedules.activityId, activityStaffSchedules.scheduleId] });
+    const [row] = await db.select().from(activityStaffSchedules).where(and(eq(activityStaffSchedules.activityId, id), eq(activityStaffSchedules.scheduleId, scheduleId)));
+    return c.json({ assigned: row });
+  } catch (e) {
+    console.error('Assign activity to schedule error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.delete('/learning-activities/:id/schedules/:scheduleId', async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if (admin instanceof Response) return admin;
+    const id = c.req.param('id');
+    const scheduleId = c.req.param('scheduleId');
+    await db.delete(activityStaffSchedules).where(and(eq(activityStaffSchedules.activityId, id), eq(activityStaffSchedules.scheduleId, scheduleId)));
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error('Unassign activity from schedule error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 app.get('/activity-submissions', async (c) => {
   try {
     const admin = await requireAdmin(c);
@@ -2500,7 +2591,10 @@ app.patch('/activity-submissions/:id', async (c) => {
     const [sub] = await db.select().from(activitySubmissions).where(eq(activitySubmissions.id, id));
     if (!sub) return c.json({ error: 'Submission not found' }, 404);
     const isAdmin = auth.role === 'admin';
-    if (isAdmin) {
+    const isStaffGrader =
+      auth.role === 'staff' &&
+      (await db.select({ id: activityStaffSchedules.id }).from(activityStaffSchedules).innerJoin(staffSchedules, eq(activityStaffSchedules.scheduleId, staffSchedules.id)).where(and(eq(activityStaffSchedules.activityId, sub.activityId), eq(staffSchedules.staffId, auth.userId))).limit(1)).length > 0;
+    if (isAdmin || isStaffGrader) {
       await db.update(activitySubmissions).set({
         status: (body.status || sub.status) as any,
         score: body.score !== undefined ? String(body.score) : sub.score,
@@ -2882,6 +2976,124 @@ app.get('/staff/my-schedule/week', async (c) => {
     return c.json({ weekStart, slots: rows });
   } catch (e) {
     console.error('Staff my schedule week error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// Staff: activities (exercises, assessments, assignments) assigned to my class events
+app.get('/staff/my-activities', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const weekStart = c.req.query('weekStart'); // optional: filter by week
+    const myScheduleIds = await db.select({ id: staffSchedules.id, classId: staffSchedules.classId, weekStart: staffSchedules.weekStart, dayOfWeek: staffSchedules.dayOfWeek, startTime: staffSchedules.startTime, endTime: staffSchedules.endTime, room: staffSchedules.room, lessonTitle: staffSchedules.lessonTitle })
+      .from(staffSchedules)
+      .where(eq(staffSchedules.staffId, auth.userId));
+    if (weekStart) {
+      const filtered = myScheduleIds.filter((s) => s.weekStart === weekStart);
+      if (filtered.length === 0) return c.json({ slots: [] });
+    }
+    const scheduleIds = myScheduleIds.map((s) => s.id);
+    if (scheduleIds.length === 0) return c.json({ slots: [] });
+    const links = await db.select({
+      scheduleId: activityStaffSchedules.scheduleId,
+      activityId: activityStaffSchedules.activityId,
+      sortOrder: activityStaffSchedules.sortOrder,
+    }).from(activityStaffSchedules).where(inArray(activityStaffSchedules.scheduleId, scheduleIds));
+    const activityIds = [...new Set(links.map((l) => l.activityId))];
+    if (activityIds.length === 0) return c.json({ slots: [] });
+    const activities = await db.select({
+      id: learningActivities.id,
+      type: learningActivities.type,
+      title: learningActivities.title,
+      titleFr: learningActivities.titleFr,
+      description: learningActivities.description,
+      requiresSubmission: learningActivities.requiresSubmission,
+      maxScore: learningActivities.maxScore,
+    }).from(learningActivities).where(inArray(learningActivities.id, activityIds));
+    const actMap = new Map(activities.map((a) => [a.id, a]));
+    const scheduleMap = new Map(myScheduleIds.map((s) => [s.id, s]));
+    const bySlot: { scheduleId: string; weekStart: string; dayOfWeek: number; startTime: string; endTime: string; room: string | null; lessonTitle: string | null; className?: string; activities: typeof activities }[] = [];
+    const added = new Set<string>();
+    for (const link of links) {
+      const slot = scheduleMap.get(link.scheduleId);
+      if (!slot || (weekStart && slot.weekStart !== weekStart)) continue;
+      const act = actMap.get(link.activityId);
+      if (!act) continue;
+      const key = link.scheduleId;
+      if (!added.has(key)) {
+        const [classRow] = await db.select({ name: programClasses.name }).from(programClasses).where(eq(programClasses.id, slot.classId));
+        added.add(key);
+        bySlot.push({
+          scheduleId: key,
+          weekStart: slot.weekStart,
+          dayOfWeek: slot.dayOfWeek,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          room: slot.room,
+          lessonTitle: slot.lessonTitle,
+          className: classRow?.name ?? undefined,
+          activities: [],
+        });
+      }
+      const entry = bySlot.find((b) => b.scheduleId === key);
+      if (entry) entry.activities.push({ ...act, sortOrder: link.sortOrder ?? 0 });
+    }
+    bySlot.sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.dayOfWeek - b.dayOfWeek || String(a.startTime).localeCompare(String(b.startTime)));
+    return c.json({ slots: bySlot });
+  } catch (e) {
+    console.error('Staff my activities error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// Staff: submissions to grade (for activities assigned to my class events)
+app.get('/staff/submissions-to-grade', async (c) => {
+  try {
+    const auth = await authenticateUser(c.req.header('Authorization'));
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401);
+    const status = c.req.query('status') || 'submitted';
+    const myScheduleIds = await db.select({ id: staffSchedules.id }).from(staffSchedules).where(eq(staffSchedules.staffId, auth.userId));
+    const scheduleIds = myScheduleIds.map((s) => s.id);
+    if (scheduleIds.length === 0) return c.json({ submissions: [] });
+    const activityIds = await db.select({ activityId: activityStaffSchedules.activityId }).from(activityStaffSchedules).where(inArray(activityStaffSchedules.scheduleId, scheduleIds));
+    const ids = [...new Set(activityIds.map((a) => a.activityId))];
+    if (ids.length === 0) return c.json({ submissions: [] });
+    const rows = await db.select({
+      id: activitySubmissions.id,
+      enrollmentId: activitySubmissions.enrollmentId,
+      activityId: activitySubmissions.activityId,
+      status: activitySubmissions.status,
+      submittedAt: activitySubmissions.submittedAt,
+      score: activitySubmissions.score,
+      maxScore: activitySubmissions.maxScore,
+      feedback: activitySubmissions.feedback,
+      studentName: profiles.name,
+      studentEmail: profiles.email,
+      activityTitle: learningActivities.title,
+      activityTitleFr: learningActivities.titleFr,
+    }).from(activitySubmissions)
+      .leftJoin(enrollments, eq(activitySubmissions.enrollmentId, enrollments.id))
+      .leftJoin(profiles, eq(enrollments.studentId, profiles.id))
+      .leftJoin(learningActivities, eq(activitySubmissions.activityId, learningActivities.id))
+      .where(and(inArray(activitySubmissions.activityId, ids), eq(activitySubmissions.status, status)));
+    const list = rows.map((r) => ({
+      id: r.id,
+      enrollmentId: r.enrollmentId,
+      activityId: r.activityId,
+      status: r.status,
+      submittedAt: r.submittedAt,
+      score: r.score != null ? Number(r.score) : null,
+      maxScore: r.maxScore != null ? Number(r.maxScore) : null,
+      feedback: r.feedback,
+      studentName: (r as any).studentName,
+      studentEmail: (r as any).studentEmail,
+      activityTitle: (r as any).activityTitle,
+      activityTitleFr: (r as any).activityTitleFr,
+    }));
+    return c.json({ submissions: list });
+  } catch (e) {
+    console.error('Staff submissions to grade error:', e);
     return c.json({ error: (e as Error).message }, 500);
   }
 });

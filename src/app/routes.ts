@@ -56,6 +56,7 @@ import { StaffClasses } from './pages/staff/StaffClasses';
 import { StaffAttendancePage } from './pages/staff/StaffAttendancePage';
 import { StaffMaterials } from './pages/staff/StaffMaterials';
 import { StaffWallet } from './pages/staff/StaffWallet';
+import { StaffActivities } from './pages/staff/StaffActivities';
 import { StaffApproveAttendance } from './pages/staff/StaffApproveAttendance';
 import { createElement } from 'react';
 import { Navigate } from 'react-router';
@@ -217,6 +218,7 @@ export const router = createBrowserRouter([
       { path: 'attendance-requests', Component: () => createElement(Navigate, { to: '/staff/attendance?tab=requests', replace: true }) },
       { path: 'approve-attendance', Component: StaffApproveAttendance },
       { path: 'materials', Component: StaffMaterials },
+      { path: 'activities', Component: StaffActivities },
       { path: 'schedule', Component: () => createElement(Navigate, { to: '/staff/attendance', replace: true }) },
       { path: 'wallet', Component: StaffWallet },
     ],

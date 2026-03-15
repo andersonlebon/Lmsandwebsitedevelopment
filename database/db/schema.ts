@@ -297,6 +297,18 @@ export const activityClasses = pgTable('activity_classes', {
   activityClassUnique: unique().on(t.activityId, t.classId),
 }));
 
+// ─── Activity ↔ Staff schedule (class event: exercises/assessments/assignments tied to the slot assigned to teacher)
+export const activityStaffSchedules = pgTable('activity_staff_schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  activityId: uuid('activity_id').notNull(),
+  scheduleId: uuid('schedule_id').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  assignedAt: timestamptz('assigned_at').defaultNow(),
+  assignedBy: uuid('assigned_by'),
+}, (t) => ({
+  activityScheduleUnique: unique().on(t.activityId, t.scheduleId),
+}));
+
 // ─── Student attendance (request with location; lecturer approves/rejects)
 export const studentAttendanceRequests = pgTable('student_attendance_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -515,6 +527,7 @@ export const learningActivitiesRelations = relations(learningActivities, ({ one,
   creator: one(profiles, { fields: [learningActivities.createdBy], references: [profiles.id] }),
   activityPromotions: many(activityPromotions),
   activityClasses: many(activityClasses),
+  activityStaffSchedules: many(activityStaffSchedules),
   items: many(activityItems),
   submissions: many(activitySubmissions),
 }));
@@ -527,6 +540,11 @@ export const activityClassesRelations = relations(activityClasses, ({ one }) => 
 export const activityPromotionsRelations = relations(activityPromotions, ({ one }) => ({
   activity: one(learningActivities, { fields: [activityPromotions.activityId], references: [learningActivities.id] }),
   promotion: one(promotions, { fields: [activityPromotions.promotionId], references: [promotions.id] }),
+}));
+
+export const activityStaffSchedulesRelations = relations(activityStaffSchedules, ({ one }) => ({
+  activity: one(learningActivities, { fields: [activityStaffSchedules.activityId], references: [learningActivities.id] }),
+  schedule: one(staffSchedules, { fields: [activityStaffSchedules.scheduleId], references: [staffSchedules.id] }),
 }));
 
 export const activityItemsRelations = relations(activityItems, ({ one }) => ({
@@ -586,10 +604,11 @@ export const lessonsRelations = relations(lessons, ({ one }) => ({
   program: one(programs, { fields: [lessons.programId], references: [programs.id] }),
 }));
 
-export const staffSchedulesRelations = relations(staffSchedules, ({ one }) => ({
+export const staffSchedulesRelations = relations(staffSchedules, ({ one, many }) => ({
   staff: one(profiles, { fields: [staffSchedules.staffId], references: [profiles.id] }),
   class: one(programClasses, { fields: [staffSchedules.classId], references: [programClasses.id] }),
   lesson: one(lessons, { fields: [staffSchedules.lessonId], references: [lessons.id] }),
+  activityStaffSchedules: many(activityStaffSchedules),
 }));
 
 export const lecturerAttendanceRelations = relations(lecturerAttendance, ({ one }) => ({

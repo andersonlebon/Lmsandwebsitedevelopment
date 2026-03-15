@@ -114,6 +114,136 @@ function GlassVectors({ color = '#16a34a' }: { color?: string }) {
   );
 }
 
+// Hero: many animated vectors (floating shapes + SVG lines/curves)
+const HERO_VECTOR_SHAPES = [
+  { w: 80, h: 80, left: '8%', top: '12%', delay: 0, dur: 6, rot: [0, 15, 0], y: [-8, 12, -8], rounded: 12 },
+  { w: 48, h: 48, left: '85%', top: '18%', delay: 0.3, dur: 7, rot: [0, -12, 0], y: [6, -10, 6], rounded: 999 },
+  { w: 64, h: 64, left: '72%', top: '75%', delay: 0.6, dur: 8, rot: [5, -5, 5], y: [-5, 8, -5], rounded: 8 },
+  { w: 40, h: 40, left: '15%', top: '70%', delay: 0.2, dur: 5, rot: [0, 20, 0], y: [4, -6, 4], rounded: 999 },
+  { w: 96, h: 32, left: '55%', top: '8%', delay: 0.5, dur: 9, rot: [-3, 3, -3], y: [-6, 10, -6], rounded: 4 },
+  { w: 56, h: 56, left: '25%', top: '35%', delay: 0.8, dur: 6.5, rot: [0, -18, 0], y: [8, -12, 8], rounded: 16 },
+  { w: 72, h: 72, left: '78%', top: '42%', delay: 0.1, dur: 7.5, rot: [10, -10, 10], y: [-10, 6, -10], rounded: 20 },
+  { w: 36, h: 36, left: '5%', top: '48%', delay: 0.4, dur: 5.5, rot: [0, 25, 0], y: [5, -8, 5], rounded: 999 },
+  { w: 52, h: 52, left: '92%', top: '55%', delay: 0.7, dur: 6, rot: [-8, 8, -8], y: [-7, 9, -7], rounded: 6 },
+  { w: 44, h: 44, left: '38%', top: '82%', delay: 0.2, dur: 8.5, rot: [0, -14, 0], y: [6, -10, 6], rounded: 999 },
+  { w: 60, h: 60, left: '88%', top: '28%', delay: 0.9, dur: 7, rot: [6, -6, 6], y: [-4, 7, -4], rounded: 14 },
+  { w: 28, h: 28, left: '12%', top: '88%', delay: 0.5, dur: 5, rot: [0, 30, 0], y: [3, -5, 3], rounded: 999 },
+  { w: 68, h: 68, left: '62%', top: '15%', delay: 0.15, dur: 6.8, rot: [-5, 5, -5], y: [-9, 11, -9], rounded: 10 },
+  { w: 32, h: 32, left: '42%', top: '22%', delay: 0.6, dur: 5.2, rot: [0, -22, 0], y: [7, -9, 7], rounded: 999 },
+  { w: 50, h: 50, left: '18%', top: '55%', delay: 0.35, dur: 7.2, rot: [4, -4, 4], y: [-6, 8, -6], rounded: 8 },
+  { w: 58, h: 58, left: '95%', top: '68%', delay: 0.55, dur: 6.2, rot: [0, 16, 0], y: [9, -11, 9], rounded: 12 },
+  { w: 42, h: 42, left: '32%', top: '8%', delay: 0.75, dur: 8.2, rot: [-6, 6, -6], y: [-8, 6, -8], rounded: 999 },
+  { w: 66, h: 66, left: '6%', top: '28%', delay: 0.25, dur: 5.8, rot: [0, -20, 0], y: [4, -7, 4], rounded: 18 },
+  { w: 54, h: 54, left: '75%', top: '88%', delay: 0.65, dur: 7.8, rot: [8, -8, 8], y: [-11, 7, -11], rounded: 999 },
+  { w: 38, h: 38, left: '48%', top: '62%', delay: 0.45, dur: 6.4, rot: [0, 28, 0], y: [5, -9, 5], rounded: 4 },
+];
+
+function HeroVectorBg() {
+  const color = 'rgba(74, 222, 128, 0.12)';
+  const borderColor = 'rgba(255, 255, 255, 0.06)';
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {/* Floating shape vectors */}
+      {HERO_VECTOR_SHAPES.map((s, i) => (
+        <motion.div
+          key={i}
+          className="absolute border backdrop-blur-[1px]"
+          style={{
+            width: s.w,
+            height: s.h,
+            left: s.left,
+            top: s.top,
+            borderRadius: s.rounded === 999 ? '50%' : s.rounded,
+            borderColor,
+            background: `linear-gradient(135deg, ${color}, transparent)`,
+          }}
+          animate={{
+            y: s.y,
+            rotate: s.rot,
+            opacity: [0.4, 0.7, 0.4],
+          }}
+          transition={{
+            duration: s.dur,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: s.delay,
+          }}
+        />
+      ))}
+      {/* SVG vector lines & curves */}
+      <svg
+        className="absolute inset-0 w-full h-full opacity-50"
+        viewBox="0 0 1200 800"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id="heroLineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#4ade80" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.06" />
+          </linearGradient>
+        </defs>
+        {[
+          [100, 0, 150, 800], [400, 0, 380, 800], [700, 0, 720, 800], [1000, 0, 980, 800],
+          [0, 150, 1200, 120], [0, 350, 1200, 380], [0, 550, 1200, 520], [0, 720, 1200, 750],
+          [50, 0, 200, 800], [300, 0, 250, 800], [550, 0, 600, 800], [850, 0, 900, 800], [1100, 0, 1050, 800],
+        ].map(([x1, y1, x2, y2], i) => (
+          <motion.line
+            key={`line-${i}`}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="url(#heroLineGrad)"
+            strokeWidth="0.5"
+            animate={{ opacity: [0.08, 0.22, 0.08] }}
+            transition={{ duration: 4 + (i % 3), repeat: Infinity, ease: 'easeInOut', delay: i * 0.15 }}
+          />
+        ))}
+        {[
+          { cx: 200, cy: 150, r: 120 },
+          { cx: 1000, cy: 400, r: 180 },
+          { cx: 600, cy: 650, r: 100 },
+          { cx: 150, cy: 500, r: 80 },
+          { cx: 950, cy: 120, r: 60 },
+          { cx: 400, cy: 350, r: 140 },
+          { cx: 800, cy: 580, r: 90 },
+        ].map((c, i) => (
+          <motion.circle
+            key={`circle-${i}`}
+            cx={c.cx}
+            cy={c.cy}
+            r={c.r}
+            stroke="url(#heroLineGrad)"
+            strokeWidth="0.4"
+            fill="none"
+            animate={{ opacity: [0.06, 0.16, 0.06] }}
+            transition={{ duration: 5 + i * 0.5, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+          />
+        ))}
+        {[
+          'M 0 200 Q 400 100 800 250 T 1200 180',
+          'M 0 500 Q 300 400 600 550 T 1200 480',
+          'M 1200 350 Q 700 250 300 400 T 0 320',
+          'M 600 0 V 800',
+          'M 200 0 V 800',
+          'M 1000 0 V 800',
+        ].map((d, i) => (
+          <motion.path
+            key={`path-${i}`}
+            d={d}
+            stroke="rgba(74, 222, 128, 0.1)"
+            strokeWidth="0.5"
+            fill="none"
+            animate={{ opacity: [0.05, 0.14, 0.05] }}
+            transition={{ duration: 8 + i, repeat: Infinity, ease: 'easeInOut', delay: i * 0.5 }}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 function IcyMeshBg() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -198,6 +328,8 @@ export function Home() {
           <img src={teacherImg} alt="BTC" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-br from-black/90 via-black/80 to-green-950/70" />
         </div>
+
+        <HeroVectorBg />
 
         {[...Array(5)].map((_, i) => (
           <motion.div

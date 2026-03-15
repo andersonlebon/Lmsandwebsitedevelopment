@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen, Loader2, Plus, X, Edit2, Trash2, ListOrdered, Share2, CheckCircle, Clock,
-  FileQuestion, Video, Music, Headphones, FileText, ToggleLeft, Link2, Type
+  FileQuestion, Video, Music, Headphones, FileText, ToggleLeft, Link2, Type, CalendarCheck
 } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 import { apiFetch } from '../../lib/api';
@@ -86,6 +86,18 @@ export function LearningActivities() {
   const [classModal, setClassModal] = useState<Activity | null>(null);
   const [classes, setClasses] = useState<{ id: string; name: string; programName?: string; programNameFr?: string; departmentName?: string; dayOfWeek?: number; startTime?: string }[]>([]);
   const [assignedClassIds, setAssignedClassIds] = useState<string[]>([]);
+  const [scheduleModal, setScheduleModal] = useState<Activity | null>(null);
+  const [scheduleWeekStart, setScheduleWeekStart] = useState<string>(() => {
+    const d = new Date();
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
+    return mon.toISOString().slice(0, 10);
+  });
+  const [scheduleSlots, setScheduleSlots] = useState<{ scheduleId: string; classId: string; className: string; classCode?: string; dayOfWeek: number; startTime: string; endTime: string; staffName: string | null; lessonTitle: string | null }[]>([]);
+  const [assignedScheduleIds, setAssignedScheduleIds] = useState<string[]>([]);
+  const [initialAssignedScheduleIds, setInitialAssignedScheduleIds] = useState<string[]>([]);
+  const [scheduleModalAssignedList, setScheduleModalAssignedList] = useState<{ scheduleId: string; weekStart: string; dayOfWeek: number; startTime: string; endTime: string; className: string; staffName: string | null }[]>([]);
+  const [scheduleSlotsLoading, setScheduleSlotsLoading] = useState(false);
   const [gradeModal, setGradeModal] = useState<Submission | null>(null);
   const [gradeForm, setGradeForm] = useState({ score: '' as string | number, feedback: '' });
   const [saving, setSaving] = useState(false);
@@ -277,6 +289,74 @@ export function LearningActivities() {
       setAssignedClassIds([]);
     }
   };
+  const openSchedule = async (a: Activity) => {
+    setScheduleModal(a);
+    setScheduleSlots([]);
+    try {
+      const d = await apiFetch(`/learning-activities/${a.id}/schedules`, { requireAuth: true });
+      const list = (d.schedules || []) as { scheduleId: string; weekStart: string; dayOfWeek: number; startTime: string; endTime: string; className: string; staffName: string | null }[];
+      const ids = list.map((s) => s.scheduleId);
+      setAssignedScheduleIds(ids);
+      setInitialAssignedScheduleIds(ids);
+      setScheduleModalAssignedList(list);
+    } catch (_) {
+      setAssignedScheduleIds([]);
+      setInitialAssignedScheduleIds([]);
+      setScheduleModalAssignedList([]);
+    }
+    loadScheduleSlotsForWeek(scheduleWeekStart);
+  };
+  const loadScheduleSlotsForWeek = async (weekStart: string) => {
+    setScheduleSlotsLoading(true);
+    try {
+      const d = await apiFetch(`/staff-schedules/week?weekStart=${encodeURIComponent(weekStart)}`, { requireAuth: true });
+      const slots = (d.slots || []).filter((s: any) => s.scheduleId != null).map((s: any) => ({
+        scheduleId: s.scheduleId,
+        classId: s.classId,
+        className: s.className,
+        classCode: s.classCode,
+        dayOfWeek: s.dayOfWeek,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        staffName: s.staffName ?? null,
+        lessonTitle: s.lessonTitle ?? null,
+      }));
+      setScheduleSlots(slots);
+    } catch (_) {
+      setScheduleSlots([]);
+    } finally {
+      setScheduleSlotsLoading(false);
+    }
+  };
+  const toggleScheduleAssignment = (scheduleId: string) => {
+    setAssignedScheduleIds((prev) =>
+      prev.includes(scheduleId) ? prev.filter((id) => id !== scheduleId) : [...prev, scheduleId]
+    );
+  };
+  const saveSchedule = async () => {
+    if (!scheduleModal) return;
+    setSaving(true);
+    setError('');
+    try {
+      const toRemove = initialAssignedScheduleIds.filter((id) => !assignedScheduleIds.includes(id));
+      const toAdd = assignedScheduleIds.filter((id) => !initialAssignedScheduleIds.includes(id));
+      for (const id of toRemove) {
+        await apiFetch(`/learning-activities/${scheduleModal.id}/schedules/${id}`, { method: 'DELETE', requireAuth: true });
+      }
+      for (const id of toAdd) {
+        await apiFetch(`/learning-activities/${scheduleModal.id}/schedules`, {
+          method: 'POST',
+          body: JSON.stringify({ scheduleId: id }),
+          requireAuth: true,
+        });
+      }
+      setScheduleModal(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to update');
+    } finally {
+      setSaving(false);
+    }
+  };
   const saveClass = async () => {
     if (!classModal) return;
     setSaving(true);
@@ -430,6 +510,7 @@ export function LearningActivities() {
                 <div className="flex items-center gap-2">
                   <button onClick={() => openEdit(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('common.edit')}><Edit2 size={18} /></button>
                   <button onClick={() => openItems(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.manageItems')}><ListOrdered size={18} /></button>
+                  <button onClick={() => openSchedule(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.assignToClassEvents')}><CalendarCheck size={18} /></button>
                   <button onClick={() => openPromo(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.assignToPromotions')}><Share2 size={18} /></button>
                   <button onClick={() => openClass(a)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" title={t('learning.assignToClasses')}><Clock size={18} /></button>
                   <button onClick={() => deleteActivity(a.id)} className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"><Trash2 size={18} /></button>
@@ -553,6 +634,62 @@ export function LearningActivities() {
             <div className="mt-6 flex justify-end gap-2">
               <button onClick={() => setClassModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm">{t('common.cancel')}</button>
               <button onClick={saveClass} disabled={saving} className="px-4 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                {saving && <Loader2 size={14} className="animate-spin" />}{t('common.save')}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Assign to class event (schedule slot) modal */}
+      {scheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setScheduleModal(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white" style={{ fontFamily: 'Poppins' }}>{t('learning.assignToClassEvents')} — {scheduleModal.title}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{lang === 'fr' ? 'Les exercices/évaluations/devoirs sont liés au créneau (cours) assigné au prof par l\'admin.' : 'Activities are linked to the class event (schedule slot) assigned to the teacher by admin.'}</p>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {scheduleModalAssignedList.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">{lang === 'fr' ? 'Assigné aux créneaux' : 'Assigned to slots'}</h4>
+                  <div className="space-y-1.5">
+                    {scheduleModalAssignedList.map((s) => (
+                      <label key={s.scheduleId} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={assignedScheduleIds.includes(s.scheduleId)} onChange={() => toggleScheduleAssignment(s.scheduleId)} className="rounded" />
+                        {s.className} — {s.weekStart} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][(s.dayOfWeek || 1) - 1] ?? s.dayOfWeek} {s.startTime} {s.staffName ? `(${s.staffName})` : ''}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">{lang === 'fr' ? 'Ajouter depuis la semaine' : 'Add from week'}</h4>
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="date" value={scheduleWeekStart} onChange={e => setScheduleWeekStart(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" />
+                  <button type="button" onClick={() => loadScheduleSlotsForWeek(scheduleWeekStart)} disabled={scheduleSlotsLoading} className="px-3 py-2 rounded-xl bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white text-sm font-medium disabled:opacity-50 flex items-center gap-1">
+                    {scheduleSlotsLoading && <Loader2 size={14} className="animate-spin" />}{lang === 'fr' ? 'Charger' : 'Load'}
+                  </button>
+                </div>
+                {scheduleSlotsLoading ? (
+                  <p className="text-sm text-gray-500">{lang === 'fr' ? 'Chargement…' : 'Loading…'}</p>
+                ) : scheduleSlots.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{lang === 'fr' ? 'Aucun créneau avec enseignant assigné pour cette semaine.' : 'No slots with assigned teacher for this week.'}</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {scheduleSlots.map((slot) => (
+                      <label key={slot.scheduleId} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={assignedScheduleIds.includes(slot.scheduleId)} onChange={() => toggleScheduleAssignment(slot.scheduleId)} className="rounded" />
+                        {slot.className} — {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][(slot.dayOfWeek || 1) - 1] ?? slot.dayOfWeek} {slot.startTime} {slot.staffName ? `(${slot.staffName})` : ''}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+              <button onClick={() => setScheduleModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm">{t('common.cancel')}</button>
+              <button onClick={saveSchedule} disabled={saving} className="px-4 py-2 rounded-xl text-white text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
                 {saving && <Loader2 size={14} className="animate-spin" />}{t('common.save')}
               </button>
             </div>

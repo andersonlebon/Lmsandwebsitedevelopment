@@ -23,6 +23,7 @@ export function StaffLayout() {
     { href: '/staff', label: t('common.overview'), icon: LayoutDashboard, exact: true },
     { href: '/staff/classes', label: t('staff.myClasses'), icon: BookOpen },
     { href: '/staff/attendance', label: t('staff.scheduleAndAttendance'), icon: Calendar },
+    { href: '/staff/activities', label: t('staff.activitiesAndGrading'), icon: ClipboardCheck },
     { href: '/staff/materials', label: t('staff.materials'), icon: FileUp },
     { href: '/staff/wallet', label: t('common.wallet'), icon: Wallet },
   ];
