@@ -9,6 +9,7 @@ import { About } from './pages/About';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { Contact } from './pages/Contact';
+import { Marketing } from './pages/Marketing';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Setup } from './pages/Setup';
@@ -79,6 +80,7 @@ export const router = createBrowserRouter([
       { path: 'courses', Component: Courses },
       { path: 'courses/:id', Component: CourseDetail },
       { path: 'contact', Component: Contact },
+      { path: 'marketing', Component: Marketing },
     ],
   },
   {
