@@ -7,16 +7,6 @@ import { useAuth } from '../../context/AuthContext';
 import { apiBase } from '../../config/env';
 const btcLogo = '/images/btc-logo.png';
 
-// Fallback hardcoded programs — used only if API returns nothing
-const FALLBACK_PROGRAMS = [
-  { id: 'eng-l1', department: 'english', name: 'Level 1', nameFr: 'Niveau 1', status: 'active', fees: [{ id: 'f1', name: 'Monthly Tuition', nameFr: 'Frais mensuels', amount: 50, currency: 'USD', type: 'monthly', required: true }] },
-  { id: 'eng-l2', department: 'english', name: 'Level 2', nameFr: 'Niveau 2', status: 'active', fees: [{ id: 'f2', name: 'Monthly Tuition', nameFr: 'Frais mensuels', amount: 50, currency: 'USD', type: 'monthly', required: true }] },
-  { id: 'cs-word', department: 'computer', name: 'Microsoft Word', nameFr: 'Microsoft Word', status: 'active', fees: [{ id: 'f3', name: 'Monthly Tuition', nameFr: 'Frais mensuels', amount: 40, currency: 'USD', type: 'monthly', required: true }] },
-  { id: 'cs-full', department: 'computer', name: 'Full Computer Package', nameFr: 'Pack Informatique Complet', status: 'active', fees: [{ id: 'f4', name: 'Monthly Tuition', nameFr: 'Frais mensuels', amount: 60, currency: 'USD', type: 'monthly', required: true }] },
-  { id: 'dr-full', department: 'driving', name: 'Full Driving Program', nameFr: 'Programme Complet de Conduite', status: 'active', fees: [{ id: 'f5', name: 'Full Program', nameFr: 'Programme Complet', amount: 200, currency: 'USD', type: 'one-time', required: true }] },
-  { id: 'sw-beg', department: 'sewing', name: 'Beginner', nameFr: 'Débutant', status: 'active', fees: [{ id: 'f6', name: 'Monthly Tuition', nameFr: 'Frais mensuels', amount: 25, currency: 'USD', type: 'monthly', required: true }] },
-];
-
 interface Fee {
   id: string;
   name: string;
@@ -93,16 +83,21 @@ export function Register() {
         if (progRes.ok) {
           const data = await progRes.json();
           const active = (data.programs || []).filter((p: Program) => p.status === 'active');
-          setPrograms(active.length > 0 ? active : FALLBACK_PROGRAMS);
-        } else setPrograms(FALLBACK_PROGRAMS);
+          setPrograms(active);
+        } else {
+          setPrograms([]);
+        }
         if (promRes.ok) {
           const data = await promRes.json();
           const list = (data.promotions || []).filter((p: Promotion) => p.status === 'active' || p.status === 'upcoming');
           setPromotions(list);
+        } else {
+          setPromotions([]);
         }
       } catch (e) {
         console.error('Failed to load programs/promotions:', e);
-        setPrograms(FALLBACK_PROGRAMS);
+        setPrograms([]);
+        setPromotions([]);
       } finally {
         setLoadingPrograms(false);
       }
@@ -513,6 +508,16 @@ export function Register() {
                 {loadingPrograms ? (
                   <div className="flex justify-center py-10">
                     <Loader2 size={24} className="animate-spin text-gray-400" />
+                  </div>
+                ) : programs.length === 0 && promotions.length === 0 ? (
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-5 text-center">
+                    <AlertCircle size={24} className="mx-auto text-amber-500 mb-2" />
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      {lang === 'fr' ? 'Aucun programme disponible pour le moment.' : 'No programs available at the moment.'}
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                      {lang === 'fr' ? 'Vérifiez votre connexion ou réessayez plus tard.' : 'Check your connection or try again later.'}
+                    </p>
                   </div>
                 ) : (
                   <>

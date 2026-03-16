@@ -1,6 +1,7 @@
 import { Outlet, NavLink, Navigate, useLocation } from 'react-router';
 import { Building2, ClipboardList, CalendarDays, Tag, UserCheck, BookOpen, BookMarked, Clock } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
+import React from 'react';
 
 const mainTabs = [
   { to: 'departments', labelKey: 'common.departments', icon: Building2 },
