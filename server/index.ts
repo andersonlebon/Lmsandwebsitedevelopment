@@ -4269,6 +4269,23 @@ app.post('/signup', async (c) => {
   }
 });
 
+// POST /ai/chat — AI assistant reply (auth optional; returns server message; can be wired to real AI later)
+app.post('/ai/chat', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    // Single server response; replace with real AI integration when available
+    const text =
+      message.length > 0
+        ? "Thank you for your message. The BTC Learning Assistant will be connected to a full AI service soon. For now, please refer to your course materials or contact your instructor for specific questions."
+        : "I'm KALI, your Learning Assistant. Ask me anything about your courses, and I'll do my best to help once the assistant is fully connected.";
+    return c.json({ text });
+  } catch (e) {
+    console.error('AI chat error:', e);
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 // Health for proxy/dev
 app.get('/health', (c) => c.json({ status: 'ok', server: 'drizzle' }));
 

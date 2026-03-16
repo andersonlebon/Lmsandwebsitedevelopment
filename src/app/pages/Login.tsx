@@ -137,7 +137,7 @@ export function Login() {
           </div>
 
           {/* Role info badges */}
-          <div className="mt-8 flex flex-wrap justify-center gap-2">
+          {/* <div className="mt-8 flex flex-wrap justify-center gap-2">
             {[
               { emoji: '🎓', label: lang === 'fr' ? 'Étudiant' : 'Student' },
               { emoji: '👨‍🏫', label: lang === 'fr' ? 'Personnel' : 'Staff' },
@@ -147,7 +147,7 @@ export function Login() {
                 <span>{r.emoji}</span> {r.label}
               </span>
             ))}
-          </div>
+          </div> */}
         </div>
       </motion.div>
 
@@ -234,7 +234,7 @@ export function Login() {
           </form>
 
           {/* Role info for users */}
-          <div className="mt-6 p-4 rounded-xl bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+          {/* <div className="mt-6 p-4 rounded-xl bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
               {lang === 'fr' ? 'Accès selon votre rôle :' : 'Access based on your role:'}
             </p>
@@ -251,7 +251,7 @@ export function Login() {
                 </div>
               ))}
             </div>
-          </div>
+          </div> */}
 
           {emailNotConfirmed && (
             <motion.div

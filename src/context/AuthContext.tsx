@@ -1,8 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createClient, Session, User } from '@supabase/supabase-js';
 import { supabaseUrl, supabaseAnonKey, apiBase } from '../app/lib/config';
+import { setAuthTokenGetter } from '../app/lib/auth-token-getter';
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Explicit session persistence so the session survives refresh and new tabs
+const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
 
 export { supabase };
 
@@ -65,6 +74,16 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const API_BASE = apiBase;
+
+/** JWT exp (seconds since epoch) or null if unparseable. */
+function jwtExp(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
 
 // Re-entrancy guard to prevent fetchDbProfile → refreshSession → onAuthStateChange → fetchDbProfile loop
 let _fetchingProfile = false;
@@ -221,24 +240,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // So apiFetch uses the same token as the UI on all pages (no "Session expired" while logged in)
+  useEffect(() => {
+    setAuthTokenGetter(() => session?.access_token ?? null);
+  }, [session]);
+
   // On mount, check for existing session
   useEffect(() => {
     let mounted = true;
 
     async function init() {
       try {
-        // First check if there's a cached session at all
         const { data: { session: cachedSession } } = await supabase.auth.getSession();
         if (cachedSession?.user) {
-          // Eagerly refresh to get a valid access_token (cached one may be expired)
-          const { data: { session: freshSession }, error: refreshError } = await supabase.auth.refreshSession();
-          const session = freshSession || cachedSession;
+          const now = Math.floor(Date.now() / 1000);
+          const exp = jwtExp(cachedSession.access_token ?? '');
+          // Only refresh when token is expired or expires in less than 60 seconds — avoids refreshing every page load
+          const needsRefresh = exp === null || exp - now < 60;
+          let session = cachedSession;
+          if (needsRefresh) {
+            const { data: { session: freshSession } } = await supabase.auth.refreshSession();
+            session = freshSession || cachedSession;
+          }
           if (mounted) {
             setSession(session);
             const profile = await fetchDbProfile(session.user!, session.access_token);
             setUser(profile);
             syncLocalStorage(profile);
-            console.log('Auth init: restored session for', profile.email, 'role:', profile.role, refreshError ? '(refresh failed, using cached)' : '(refreshed)');
           }
         }
       } catch (e) {
@@ -250,25 +278,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     init();
 
-    // Listen for auth state changes (sign-in, sign-out, token refresh)
+    // Listen for auth state changes (sign-in, sign-out, token refresh, initial session)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
-      console.log('Auth state changed:', event, !!newSession);
-
       setSession(newSession);
 
-      if (newSession?.user && event === 'SIGNED_IN') {
-        // Only fetch profile on actual sign-in, not token refresh
-        // (TOKEN_REFRESHED doesn't change profile data, only the JWT)
+      // Restore user profile on sign-in or when initial session is restored (e.g. page refresh)
+      if (newSession?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
         fetchDbProfile(newSession.user, newSession.access_token, true).then((profile) => {
           if (!mounted) return;
           setUser(profile);
           syncLocalStorage(profile);
         });
       } else if (newSession?.user && event === 'TOKEN_REFRESHED') {
-        // Token refreshed — session is updated above, but profile data hasn't changed.
-        // Only update session, don't re-fetch profile to avoid redirect loops.
-        console.log('Auth: token refreshed, session updated (profile unchanged)');
+        // Token refreshed in background — only update session, do not re-fetch profile (avoids flicker / "refresh" feel)
       } else if (!newSession || event === 'SIGNED_OUT') {
         setUser(null);
         clearLocalStorage();

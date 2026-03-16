@@ -17,7 +17,7 @@ app.use(
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
-    maxAge: 600,
+    maxAge: 60000,
   }),
 );
 
@@ -1611,6 +1611,21 @@ app.get("/make-server-36dfb453/views/monthly-revenue", async (c) => {
   } catch (e) {
     console.log('Monthly revenue error:', e);
     return c.json({ error: `Failed to get monthly revenue: ${e.message}` }, 500);
+  }
+});
+
+// AI assistant — same placeholder as Node server; can be wired to real AI later
+app.post("/make-server-36dfb453/ai/chat", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const message = typeof body?.message === "string" ? body.message.trim() : "";
+    const text = message.length > 0
+      ? "Thank you for your message. The BTC Learning Assistant will be connected to a full AI service soon. For now, please refer to your course materials or contact your instructor for specific questions."
+      : "I'm the BTC Learning Assistant. Ask me anything about your courses, and I'll do my best to help once the assistant is fully connected.";
+    return c.json({ text });
+  } catch (e) {
+    console.log("AI chat error:", e);
+    return c.json({ error: String(e) }, 500);
   }
 });
 

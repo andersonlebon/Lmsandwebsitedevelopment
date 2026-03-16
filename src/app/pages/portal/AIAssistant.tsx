@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Send, User, Sparkles, BookOpen, Languages, Monitor, Lightbulb } from 'lucide-react';
+import { apiFetch } from '../../lib/api';
 
 interface Message {
   id: number;
@@ -15,28 +16,20 @@ const suggestions = [
   { icon: Lightbulb, text: 'Give me tips for my IELTS preparation' },
 ];
 
-const MOCK_RESPONSES: Record<string, string> = {
-  default: "Great question! I'm BTC's AI Learning Assistant. I can help you with language practice, course material explanations, study tips, and exam preparation. What would you like to learn about today?",
-  english: "For English learning, I recommend focusing on: 1) Daily reading of news articles, 2) Listening to English podcasts, 3) Practicing speaking with classmates, and 4) Writing a journal entry every day. Would you like me to help with any specific topic?",
-  french: "Le passé composé is used for completed actions in the past, while l'imparfait describes ongoing or habitual past actions. For example: 'J'ai mangé' (I ate - completed) vs 'Je mangeais' (I was eating - ongoing). Want me to give you more examples?",
-  python: "In Python, variables store data values. You create a variable by assigning a value: `name = 'Amina'` (string), `age = 22` (integer), `grade = 94.5` (float), `is_student = True` (boolean). Python automatically detects the data type. Would you like to practice with some exercises?",
-  ielts: "Here are my top IELTS tips: 1) Practice all 4 skills daily (Reading, Writing, Listening, Speaking), 2) Learn academic vocabulary, 3) Time yourself during practice tests, 4) For Writing Task 2, use a clear structure: Introduction, Body 1, Body 2, Conclusion. What's your target IELTS score?",
-};
-
-function getResponse(input: string): string {
-  const lower = input.toLowerCase();
-  if (lower.includes('english') || lower.includes('conversation')) return MOCK_RESPONSES.english;
-  if (lower.includes('french') || lower.includes('passé') || lower.includes('imparfait')) return MOCK_RESPONSES.french;
-  if (lower.includes('python') || lower.includes('variable') || lower.includes('data type')) return MOCK_RESPONSES.python;
-  if (lower.includes('ielts') || lower.includes('exam') || lower.includes('preparation')) return MOCK_RESPONSES.ielts;
-  return MOCK_RESPONSES.default;
-}
-
 export function PortalAIAssistant() {
-  const user = JSON.parse(localStorage.getItem('btc_user') || '{"name":"Student"}');
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 0, role: 'assistant', text: `Hello, ${user.name}! I'm your BTC AI Learning Assistant. I can help you with your courses, practice languages, explain concepts, and prepare for exams. What would you like to work on today?` }
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    let name = 'Student';
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('btc_user') : null;
+      if (raw) {
+        const o = JSON.parse(raw);
+        if (o && typeof o.name === 'string') name = o.name;
+      }
+    } catch { /* ignore */ }
+    return [
+      { id: 0, role: 'assistant', text: `Hello, ${name}! I'm KALI, your Learning Assistant. I can help you with your courses, practice languages, explain concepts, and prepare for exams. What would you like to work on today?` }
+    ];
+  });
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -45,18 +38,26 @@ export function PortalAIAssistant() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
 
-  const handleSend = (text?: string) => {
+  const handleSend = async (text?: string) => {
     const msg = text || input.trim();
     if (!msg) return;
     const userMsg: Message = { id: messages.length, role: 'user', text: msg };
     setMessages(ms => [...ms, userMsg]);
     setInput('');
     setTyping(true);
-    setTimeout(() => {
-      const response = getResponse(msg);
-      setMessages(ms => [...ms, { id: ms.length, role: 'assistant', text: response }]);
+    try {
+      const data = await apiFetch('/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: msg }),
+      });
+      const responseText = typeof data?.text === 'string' ? data.text : 'Sorry, I could not get a response. Please try again.';
+      setMessages(ms => [...ms, { id: ms.length, role: 'assistant', text: responseText }]);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : 'Something went wrong. Please try again.';
+      setMessages(ms => [...ms, { id: ms.length, role: 'assistant', text: `Sorry: ${errMsg}` }]);
+    } finally {
       setTyping(false);
-    }, 1200 + Math.random() * 800);
+    }
   };
 
   return (

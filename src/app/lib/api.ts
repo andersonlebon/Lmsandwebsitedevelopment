@@ -1,5 +1,6 @@
 import { supabaseAnonKey, apiBase } from './config';
 import { supabase } from '../../context/AuthContext';
+import { getCurrentSessionToken } from './auth-token-getter';
 
 const API_BASE = apiBase;
 const publicAnonKey = supabaseAnonKey;
@@ -41,7 +42,21 @@ function isAnonToken(token: string): boolean {
  */
 async function getFreshToken(requireUserToken = false): Promise<string> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    // Use the same token as the UI (AuthContext) when available — avoids "Session expired" while sidebar shows logged in
+    const currentToken = getCurrentSessionToken();
+    if (currentToken && !isAnonToken(currentToken)) {
+      const exp = jwtExp(currentToken);
+      const now = Math.floor(Date.now() / 1000);
+      if (exp !== null && exp - now > 60) return currentToken;
+    }
+
+    let { data: { session } } = await supabase.auth.getSession();
+    // When auth is required and storage returned no session, try one refresh (e.g. rehydration race)
+    if (requireUserToken && !session?.access_token) {
+      await supabase.auth.refreshSession();
+      const next = await supabase.auth.getSession();
+      session = next.data.session;
+    }
     if (!session?.access_token) {
       if (requireUserToken) throw new Error('Session expired. Please log in again.');
       return publicAnonKey;
@@ -104,10 +119,21 @@ export async function apiFetch(
     ...(fetchOptions.headers as Record<string, string> || {}),
   });
 
-  let res = await fetch(`${API_BASE}${path}`, {
+  const doFetch = () => fetch(`${API_BASE}${path}`, {
     ...fetchOptions,
     headers: buildHeaders(token),
   });
+
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch (networkErr) {
+    const isFailedToFetch = networkErr instanceof TypeError && (networkErr.message === 'Failed to fetch' || (networkErr as any).name === 'TypeError');
+    const msg = isFailedToFetch
+      ? 'Impossible de joindre le serveur API. En local, lancez "npm run server" (port 5000) et définissez VITE_API_URL=http://localhost:5000 dans .env'
+      : (networkErr instanceof Error ? networkErr.message : 'Network error');
+    throw new Error(msg);
+  }
 
   // If 401 and we didn't explicitly pass a token, try refreshing and retry once
   if (res.status === 401 && !accessToken) {
@@ -145,5 +171,9 @@ export async function apiFetch(
     throw new Error(errorData.error || `Request failed: ${res.status}`);
   }
 
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new Error('Invalid JSON response from server');
+  }
 }
